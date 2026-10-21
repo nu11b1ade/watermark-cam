@@ -40,7 +40,12 @@ fun formatWatermarkCard(config: WatermarkConfig, effective: WatermarkContent): W
   time = if (config.showTime) formatWatermarkTime(effective.capturedAt) else null,
   place = if (config.showPlace) cleanWatermarkText(effective.place).ifBlank { "地点 暂无" } else null,
   coordinates = if (config.showCoordinates && !config.hasUnlocatedPlaceOverride) formatWatermarkCoordinates(effective.coordinates) else null,
-  weather = if (config.showWeather && !config.hasUnlocatedPlaceOverride) formatWatermarkWeather(effective.weather) else null,
+  weather = when {
+    !config.showWeather -> null
+    config.weatherText != null -> config.weatherText.takeIf { it.isNotBlank() }
+    config.hasUnlocatedPlaceOverride -> null
+    else -> formatWatermarkWeather(effective.weather)
+  },
   tag = if (config.showCustomText) cleanWatermarkText(config.customText).takeIf { it.isNotBlank() } else null,
   watermarkSize = config.watermarkSize,
 )

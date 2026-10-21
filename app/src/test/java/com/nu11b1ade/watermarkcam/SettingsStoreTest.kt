@@ -28,8 +28,14 @@ class SettingsStoreTest {
     val config = SettingsStore(context).load()
 
     assertEquals(WatermarkSize.MEDIUM, config.watermarkSize)
+    assertFalse(config.showCoordinates)
     assertFalse(config.showCustomText)
     assertEquals("", config.customText)
+  }
+
+  @Test fun `an existing choice to show coordinates persists`() {
+    SettingsStore(context).save(WatermarkConfig(showCoordinates = true))
+    assertEquals(true, SettingsStore(context).load().showCoordinates)
   }
 
   @Test fun `every watermark size persists by enum name and survives a new store`() {
@@ -48,5 +54,19 @@ class SettingsStoreTest {
 
       assertEquals(WatermarkSize.MEDIUM, SettingsStore(context).load().watermarkSize)
     }
+  }
+
+  @Test fun `original retention defaults to 7 days and all choices persist independently of watermark config`() {
+    assertEquals(7, SettingsStore(context).loadRetentionDays())
+    listOf(7, 30, 90, null).forEach { days ->
+      SettingsStore(context).saveRetentionDays(days)
+      SettingsStore(context).save(WatermarkConfig(customText = "保留原图"))
+      assertEquals(days, SettingsStore(context).loadRetentionDays())
+    }
+  }
+
+  @Test fun `invalid persisted retention falls back to 7 days`() {
+    preferences.edit { putInt("originalRetentionDays", 999) }
+    assertEquals(7, SettingsStore(context).loadRetentionDays())
   }
 }

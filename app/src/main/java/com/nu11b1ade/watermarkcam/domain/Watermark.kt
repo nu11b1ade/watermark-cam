@@ -23,12 +23,14 @@ data class OverrideState(val time: LocalDateTime? = null, val place: PlaceOverri
 data class WatermarkConfig(
   val showTime: Boolean = true,
   val showPlace: Boolean = true,
-  val showCoordinates: Boolean = true,
+  val showCoordinates: Boolean = false,
   val showWeather: Boolean = true,
   val showCustomText: Boolean = false,
   val customText: String = "",
   val overrides: OverrideState = OverrideState(),
   val watermarkSize: WatermarkSize = WatermarkSize.MEDIUM,
+  /** null = automatic weather; blank = hidden. Used only by the past-photo editor. */
+  val weatherText: String? = null,
 )
 
 data class WatermarkContent(
@@ -43,6 +45,7 @@ data class PreparedWatermark(
   val lines: List<String>,
   val card: WatermarkCard,
   val frame: PhotoFrame = PhotoFrame(),
+  val config: WatermarkConfig = WatermarkConfig(),
 )
 
 val WATERMARK_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss", Locale.ROOT)
@@ -69,10 +72,14 @@ fun composeWatermark(config: WatermarkConfig, observed: WatermarkContent): Prepa
     if (config.showCoordinates && !config.hasUnlocatedPlaceOverride) add(effective.coordinates?.let {
       String.format(Locale.ROOT, "经纬度：%.6f, %.6f", it.latitude, it.longitude)
     } ?: "经纬度：--")
-    if (config.showWeather && !config.hasUnlocatedPlaceOverride) add(effective.weather?.let {
-      String.format(Locale.ROOT, "天气：%.1f°C %s", it.temperatureC, it.condition)
-    } ?: "天气--")
+    if (config.showWeather) {
+      if (config.weatherText != null) {
+        config.weatherText.takeIf { it.isNotBlank() }?.let(::add)
+      } else if (!config.hasUnlocatedPlaceOverride) add(effective.weather?.let {
+        String.format(Locale.ROOT, "天气：%.1f°C %s", it.temperatureC, it.condition)
+      } ?: "天气--")
+    }
     if (config.showCustomText && config.customText.isNotBlank()) add(cleanWatermarkText(config.customText))
   }
-  return PreparedWatermark(effective, lines, formatWatermarkCard(config, effective))
+  return PreparedWatermark(effective, lines, formatWatermarkCard(config, effective), config = config)
 }

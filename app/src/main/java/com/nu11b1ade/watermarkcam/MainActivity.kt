@@ -51,6 +51,8 @@ import com.nu11b1ade.watermarkcam.location.FallbackForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.NominatimForwardGeocoder
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
+import com.nu11b1ade.watermarkcam.ui.HistoryScreen
+import com.nu11b1ade.watermarkcam.ui.PhotoEditScreen
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.WatermarkViewModel
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
@@ -74,7 +76,11 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
   val context = LocalContext.current
   val owner = LocalLifecycleOwner.current
   val state by model.state.collectAsStateWithLifecycle()
-  var settingsOpen by rememberSaveable { mutableStateOf(false) }
+  // "camera" | "settings" | "history" | "edit:<id>"
+  var screen by rememberSaveable { mutableStateOf("camera") }
+  val settingsOpen = screen != "camera"
+  // Restored after process death: the in-memory history list must be reloaded.
+  LaunchedEffect(Unit) { if (screen == "history" || screen.startsWith("edit:")) model.loadHistory() }
   var cameraRequested by rememberSaveable { mutableStateOf(false) }
   var cameraGranted by remember { mutableStateOf(context.hasPermission(Manifest.permission.CAMERA)) }
   var locationGranted by remember { mutableStateOf(context.hasLocationPermission()) }
@@ -138,11 +144,44 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
   }
 
   Box(Modifier.fillMaxSize()) {
-    if (settingsOpen) {
+    val editId = screen.removePrefix("edit:").takeIf { screen.startsWith("edit:") }
+    val editRecord = editId?.let(model::historyRecord)
+    if (screen == "settings") {
       SettingsScreen(
         config = state.config,
-        onSave = { model.updateConfig(it); settingsOpen = false },
-        onBack = { settingsOpen = false },
+        onSave = { model.updateConfig(it); screen = "camera" },
+        onBack = { screen = "camera" },
+        forwardGeocoder = forwardGeocoder,
+        onUseCurrentLocation = {
+          if (!context.hasLocationPermission()) throw SecurityException("Location permission required")
+          model.currentLocation()
+        },
+        retentionDays = state.retentionDays,
+        onRetentionChange = model::updateRetention,
+      )
+    } else if (screen == "history" || (editId != null && editRecord == null)) {
+      LaunchedEffect(Unit) { if (editId != null) screen = "history" }
+      HistoryScreen(
+        records = state.history,
+        originalFile = model::originalFile,
+        retentionDays = state.retentionDays,
+        loading = state.historyLoading,
+        onEdit = { screen = "edit:$it" },
+        onBack = { screen = "camera" },
+      )
+    } else if (editRecord != null) {
+      PhotoEditScreen(
+        record = editRecord,
+        original = model.originalFile(editRecord.id),
+        saving = state.saving,
+        onSave = { watermark ->
+          if (Build.VERSION.SDK_INT >= 29 || context.hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+            model.saveEdited(editRecord, watermark) { screen = "history" }
+          } else {
+            model.showNotice("Android 8–9 需要相册写入权限才能保存，请先在相机界面拍一张授权")
+          }
+        },
+        onBack = { screen = "history" },
         forwardGeocoder = forwardGeocoder,
         onUseCurrentLocation = {
           if (!context.hasLocationPermission()) throw SecurityException("Location permission required")
@@ -160,7 +199,8 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
           if (locationGranted) model.refreshEnvironment(true)
           else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         },
-        onSettings = { settingsOpen = true },
+        onSettings = { screen = "settings" },
+        onHistory = { model.loadHistory(); screen = "history" },
         onCapture = { capture, frame ->
           val request = model.prepareCapture(capture, frame)
           if (Build.VERSION.SDK_INT >= 29 || context.hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {

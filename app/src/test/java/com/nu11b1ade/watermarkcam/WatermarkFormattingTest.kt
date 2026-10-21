@@ -55,7 +55,7 @@ class WatermarkFormattingTest {
       WeatherReading(coordinates, 17.0, "晴间多云"),
     )
     val card = composeWatermark(WatermarkConfig(
-      showCustomText = true, customText = "  今日\n 打卡  ",
+      showCoordinates = true, showCustomText = true, customText = "  今日\n 打卡  ",
       overrides = OverrideState(LocalDateTime.parse("2024-05-06T07:08:09"), PlaceOverride("  上海\n 黄浦区  ", coordinates)),
     ), observed).card
 

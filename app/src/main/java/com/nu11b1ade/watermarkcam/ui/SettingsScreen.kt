@@ -1,7 +1,6 @@
 package com.nu11b1ade.watermarkcam.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -50,11 +49,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,26 +64,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.OverrideInput
 import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
-import com.nu11b1ade.watermarkcam.domain.formatCoordinate
 import com.nu11b1ade.watermarkcam.domain.parseOverrides
 import com.nu11b1ade.watermarkcam.domain.toggleCoordinateSign
 import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.LocationReading
-import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,6 +86,8 @@ fun SettingsScreen(
   onBack: () -> Unit,
   forwardGeocoder: ForwardGeocoder,
   onUseCurrentLocation: suspend () -> LocationReading? = { null },
+  retentionDays: Int? = 7,
+  onRetentionChange: (Int?) -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   var showTime by rememberSaveable { mutableStateOf(config.showTime) }
@@ -112,84 +103,13 @@ fun SettingsScreen(
   var place by rememberSaveable { mutableStateOf(config.overrides.place?.address.orEmpty()) }
   var latitude by rememberSaveable { mutableStateOf(config.overrides.place?.coordinates?.latitude?.toString().orEmpty()) }
   var longitude by rememberSaveable { mutableStateOf(config.overrides.place?.coordinates?.longitude?.toString().orEmpty()) }
-  var coordsManuallyEdited by rememberSaveable { mutableStateOf(false) }
-  var lookup by remember { mutableStateOf(PlaceLookupUiState()) }
-  var lookupRequest by remember { mutableStateOf<PlaceLookupRequest?>(null) }
-  var lookupSequence by remember { mutableIntStateOf(0) }
+  var retention by rememberSaveable { mutableStateOf(retentionDays) }
   var saveAttempted by rememberSaveable { mutableStateOf(false) }
   var datePickerOpen by rememberSaveable { mutableStateOf(false) }
   var timePickerOpen by rememberSaveable { mutableStateOf(false) }
   val selectedTime = LocalDateTime.parse(time, WATERMARK_TIME_FORMAT)
   val overrides = parseOverrides(OverrideInput(timeEnabled, time, placeEnabled, place, latitude, longitude))
-  val placeError = parseOverrides(OverrideInput(placeEnabled = placeEnabled, place = place)).exceptionOrNull()?.message
-  val coordinatesError = if (placeError == null) {
-    parseOverrides(OverrideInput(placeEnabled = placeEnabled, place = place, latitude = latitude, longitude = longitude))
-      .exceptionOrNull()?.message
-  } else null
   BackHandler(onBack = onBack)
-
-  fun fillCoordinates(coordinates: Coordinates) {
-    latitude = formatCoordinate(coordinates.latitude)
-    longitude = formatCoordinate(coordinates.longitude)
-  }
-
-  fun applyCandidates(trigger: PlaceLookupTrigger, results: List<PlaceCandidate>) {
-    val decision = placeCoordinatesAfterLookup(trigger, coordsManuallyEdited, results)
-    decision.coordinatesToFill?.let(::fillCoordinates)
-    coordsManuallyEdited = decision.manuallyEdited
-  }
-
-  fun isCurrentLookup(request: PlaceLookupRequest): Boolean = placeEnabled && lookupRequest == request &&
-    (request !is PlaceLookupRequest.Search || request.query == place)
-
-  // Only user edits/actions create requests: saved values and programmatic candidate picks stay idle.
-  LaunchedEffect(place, placeEnabled, lookupRequest) {
-    val request = lookupRequest ?: return@LaunchedEffect
-    if (!isCurrentLookup(request)) return@LaunchedEffect
-    when (request) {
-      is PlaceLookupRequest.Search -> {
-        if (place.isBlank()) return@LaunchedEffect
-        if (request.trigger == PlaceLookupTrigger.DEBOUNCE) delay(800)
-        if (!isCurrentLookup(request)) return@LaunchedEffect
-        lookup = PlaceLookupUiState(message = "正在查找…")
-        val result = forwardGeocoder.searchResult(request.query)
-        currentCoroutineContext().ensureActive()
-        // A new edit can arrive before recomposition cancels this effect's previous key.
-        if (!isCurrentLookup(request)) return@LaunchedEffect
-        val candidates = result.getOrNull().orEmpty().take(5)
-        // Button protection is cleared at click time; edits made during the request still win.
-        applyCandidates(PlaceLookupTrigger.DEBOUNCE, candidates)
-        lookup = PlaceLookupUiState(candidates = candidates, message = when {
-          result.isFailure -> "查找失败，请检查网络，或手动填经纬度"
-          candidates.isEmpty() -> "没找到这个地点，可以手动填经纬度"
-          else -> null
-        })
-      }
-      is PlaceLookupRequest.CurrentLocation -> {
-        lookup = PlaceLookupUiState(message = "正在定位…", locating = true)
-        val outcome = try {
-          val reading = onUseCurrentLocation()
-          currentCoroutineContext().ensureActive()
-          if (!isCurrentLookup(request)) return@LaunchedEffect
-          if (reading?.coordinates == null) PlaceLookupUiState(message = "定位失败，请检查定位设置，或手动填写地点和经纬度") else {
-            place = reading.address.take(MAX_WATERMARK_TEXT_LENGTH)
-            fillCoordinates(reading.coordinates)
-            coordsManuallyEdited = false
-            PlaceLookupUiState()
-          }
-        } catch (cancelled: CancellationException) {
-          throw cancelled
-        } catch (_: SecurityException) {
-          PlaceLookupUiState(message = "需要定位权限才能使用当前位置")
-        } catch (_: Exception) {
-          PlaceLookupUiState(message = "定位失败，请检查定位设置，或手动填写地点和经纬度")
-        }
-        if (!isCurrentLookup(request)) return@LaunchedEffect
-        lookup = outcome
-      }
-    }
-    if (lookupRequest == request) lookupRequest = null
-  }
 
   Scaffold(
     modifier = modifier.fillMaxSize().imePadding(),
@@ -216,8 +136,9 @@ fun SettingsScreen(
           Button(
             onClick = {
               saveAttempted = true
-              overrides.onSuccess { values ->
-                onSave(config.copy(
+               overrides.onSuccess { values ->
+                 onRetentionChange(retention)
+                 onSave(config.copy(
                   showTime = showTime, showPlace = showPlace, showCoordinates = showCoordinates,
                   showWeather = showWeather, showCustomText = showCustomText, customText = customText,
                   overrides = values, watermarkSize = watermarkSize,
@@ -235,19 +156,7 @@ fun SettingsScreen(
       verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
       SettingsSection("水印大小", "按画面比例缩放，预览与成片大小一致") {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          WatermarkSize.entries.forEach { size ->
-            FilterChip(
-              selected = watermarkSize == size, onClick = { watermarkSize = size }, modifier = Modifier.weight(1f),
-              label = { Text(when (size) {
-                WatermarkSize.SMALL -> "小"
-                WatermarkSize.MEDIUM -> "中"
-                WatermarkSize.LARGE -> "大"
-                WatermarkSize.XLARGE -> "特大"
-              }) },
-            )
-          }
-        }
+        WatermarkSizePicker(watermarkSize) { watermarkSize = it }
       }
       SettingsSection("水印内容", "选择照片上要显示的信息") {
         FieldSwitch("时间", showTime) { showTime = it }
@@ -273,62 +182,19 @@ fun SettingsScreen(
         }
       }
       SettingsSection("手动地点", "定位不方便时，可以在这里填写") {
-        FieldSwitch("使用自定义地点", placeEnabled) {
-          placeEnabled = it
-          lookupRequest = null
-          lookup = PlaceLookupUiState()
-        }
-        if (placeEnabled) {
-          OutlinedTextField(
-            value = place, onValueChange = {
-              place = it.take(MAX_WATERMARK_TEXT_LENGTH)
-              lookup = PlaceLookupUiState()
-              lookupRequest = if (place.isBlank()) null else PlaceLookupRequest.Search(place, PlaceLookupTrigger.DEBOUNCE, ++lookupSequence)
-            },
-            label = { Text("地点 / 地址") }, placeholder = { Text("例如：人民公园南门") },
-            isError = saveAttempted && placeError != null,
-            supportingText = if (saveAttempted && placeError != null) ({ Text(placeError) }) else null,
-            modifier = Modifier.fillMaxWidth(), maxLines = 3, shape = RoundedCornerShape(14.dp),
-          )
-          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-              onClick = {
-                applyCandidates(PlaceLookupTrigger.BUTTON, emptyList())
-                lookup = PlaceLookupUiState()
-                lookupRequest = PlaceLookupRequest.Search(place, PlaceLookupTrigger.BUTTON, ++lookupSequence)
-              },
-              enabled = place.isNotBlank(), modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-              shape = RoundedCornerShape(14.dp),
-            ) { Text("查找经纬度") }
-            OutlinedButton(
-              onClick = { lookupRequest = PlaceLookupRequest.CurrentLocation(++lookupSequence) },
-              enabled = !lookup.locating, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-              shape = RoundedCornerShape(14.dp),
-            ) { Text("用当前位置") }
+        FieldSwitch("使用自定义地点", placeEnabled) { placeEnabled = it }
+        PlaceEditor(
+          enabled = placeEnabled, place = place, latitude = latitude, longitude = longitude,
+          onPlaceChange = { place = it }, onLatitudeChange = { latitude = it }, onLongitudeChange = { longitude = it },
+          forwardGeocoder = forwardGeocoder, onUseCurrentLocation = onUseCurrentLocation, showErrors = saveAttempted,
+        )
+      }
+      SettingsSection("原图保留", "在历史照片中重新编辑水印；到期仅清理应用内原图") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          listOf(7, 30, 90, null).forEach { days ->
+            FilterChip(selected = retention == days, onClick = { retention = days }, modifier = Modifier.weight(1f),
+              label = { Text(days?.let { "${it}天" } ?: "永久") })
           }
-          lookup.message?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-          }
-          if (lookup.candidates.isNotEmpty()) {
-            PlaceCandidates(lookup.candidates) { candidate ->
-              lookupRequest = null
-              applyCandidates(PlaceLookupTrigger.PICK, listOf(candidate))
-              place = candidate.name
-              lookup = PlaceLookupUiState()
-            }
-          }
-          CoordinateField(
-            label = "纬度", range = "范围 -90 ～ 90", value = latitude,
-            onValueChange = { latitude = it; coordsManuallyEdited = true },
-            error = coordinatesError, imeAction = ImeAction.Next,
-          )
-          CoordinateField(
-            label = "经度", range = "范围 -180 ～ 180", value = longitude,
-            onValueChange = { longitude = it; coordsManuallyEdited = true },
-            error = coordinatesError, imeAction = ImeAction.Done,
-          )
-          Text("输入地点后可自动填写坐标，也可手动修改。坐标需同时填写或留空；留空时不显示经纬度和天气。",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       }
       Text("拍好后，打开微信，从相册选择照片发送。", Modifier.padding(horizontal = 8.dp),
@@ -350,35 +216,8 @@ fun SettingsScreen(
   }
 }
 
-private sealed interface PlaceLookupRequest {
-  data class Search(val query: String, val trigger: PlaceLookupTrigger, val sequence: Int) : PlaceLookupRequest
-  data class CurrentLocation(val sequence: Int) : PlaceLookupRequest
-}
-
-private data class PlaceLookupUiState(
-  val candidates: List<PlaceCandidate> = emptyList(),
-  val message: String? = null,
-  val locating: Boolean = false,
-)
-
 @Composable
-private fun PlaceCandidates(candidates: List<PlaceCandidate>, onPick: (PlaceCandidate) -> Unit) {
-  Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-    candidates.forEachIndexed { index, candidate ->
-      if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-      Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { onPick(candidate) }).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(candidate.name, style = MaterialTheme.typography.bodyMedium)
-        Text("纬度 ${formatCoordinate(candidate.coordinates.latitude)}, 经度 ${formatCoordinate(candidate.coordinates.longitude)}",
-          style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      }
-    }
-  }
-}
-
-@Composable
-private fun SettingsSection(title: String, description: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsSection(title: String, description: String, content: @Composable ColumnScope.() -> Unit) {
   Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -390,7 +229,7 @@ private fun SettingsSection(title: String, description: String, content: @Compos
 }
 
 @Composable
-private fun FieldSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun FieldSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
   Row(
     Modifier.fillMaxWidth().heightIn(min = 60.dp)
       .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange).padding(vertical = 8.dp),
@@ -402,7 +241,7 @@ private fun FieldSwitch(label: String, checked: Boolean, onCheckedChange: (Boole
 }
 
 @Composable
-private fun PickerButton(label: String, value: String, icon: ImageVector, onClick: () -> Unit) {
+internal fun PickerButton(label: String, value: String, icon: ImageVector, onClick: () -> Unit) {
   OutlinedButton(onClick, Modifier.fillMaxWidth().heightIn(min = 72.dp), shape = RoundedCornerShape(16.dp)) {
     Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.secondary)
     Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -413,7 +252,7 @@ private fun PickerButton(label: String, value: String, icon: ImageVector, onClic
 }
 
 @Composable
-private fun CoordinateField(
+internal fun CoordinateField(
   label: String,
   range: String,
   value: String,
@@ -437,7 +276,7 @@ private fun CoordinateField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OverrideDatePicker(value: LocalDate, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
+internal fun OverrideDatePicker(value: LocalDate, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
   // Material3 date selections are UTC midnights, not device-local instants.
   val picker = rememberDatePickerState(
     initialSelectedDateMillis = value.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(), yearRange = 1..9999,
@@ -457,7 +296,7 @@ private fun OverrideDatePicker(value: LocalDate, onDismiss: () -> Unit, onConfir
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OverrideTimePicker(value: LocalDateTime, onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
+internal fun OverrideTimePicker(value: LocalDateTime, onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
   val picker = rememberTimePickerState(initialHour = value.hour, initialMinute = value.minute, is24Hour = true)
   Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
     Surface(Modifier.widthIn(max = 400.dp).fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(28.dp),
@@ -471,6 +310,21 @@ private fun OverrideTimePicker(value: LocalDateTime, onDismiss: () -> Unit, onCo
           TextButton(onClick = { onConfirm(picker.hour, picker.minute) }) { Text("确定") }
         }
       }
+    }
+  }
+}
+
+@Composable
+internal fun WatermarkSizePicker(value: WatermarkSize, onChange: (WatermarkSize) -> Unit) {
+  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    WatermarkSize.entries.forEach { size ->
+      FilterChip(selected = value == size, onClick = { onChange(size) }, modifier = Modifier.weight(1f),
+        label = { Text(when (size) {
+          WatermarkSize.SMALL -> "小"
+          WatermarkSize.MEDIUM -> "中"
+          WatermarkSize.LARGE -> "大"
+          WatermarkSize.XLARGE -> "特大"
+        }) })
     }
   }
 }

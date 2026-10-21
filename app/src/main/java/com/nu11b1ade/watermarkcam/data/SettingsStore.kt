@@ -13,6 +13,17 @@ import com.nu11b1ade.watermarkcam.domain.parseOverrides
 class SettingsStore(context: Context) {
   private val preferences = context.getSharedPreferences("watermark", Context.MODE_PRIVATE)
 
+  fun loadRetentionDays(): Int? = when (val days = preferences.getInt("originalRetentionDays", 7)) {
+    -1 -> null
+    7, 30, 90 -> days
+    else -> 7
+  }
+
+  fun saveRetentionDays(days: Int?) {
+    require(days == null || days in listOf(7, 30, 90))
+    preferences.edit { putInt("originalRetentionDays", days ?: -1) }
+  }
+
   fun load(): WatermarkConfig {
     val defaults = WatermarkConfig()
     val overrides = parseOverrides(OverrideInput(

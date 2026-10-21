@@ -6,11 +6,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.core.content.ContextCompat
 import com.nu11b1ade.watermarkcam.domain.PreparedWatermark
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
+import com.nu11b1ade.watermarkcam.history.OriginalRecord
+import com.nu11b1ade.watermarkcam.history.OriginalsStore
 import java.io.File
 import java.io.IOException
 import java.time.format.DateTimeFormatter
@@ -24,7 +27,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /** Owns the complete capture → upright pixels → burn-in → fresh EXIF → gallery transaction. */
-class PhotoSaver(private val context: Context) {
+class PhotoSaver(
+  private val context: Context,
+  private val originals: OriginalsStore = OriginalsStore(File(context.filesDir, "originals")),
+) {
   suspend fun captureAndSave(camera: ImageCapture, watermark: PreparedWatermark): Uri = withContext(Dispatchers.IO) {
     // Create and own the file in the same context: cancellation cannot discard an unowned File result.
     val raw = File.createTempFile("capture_", ".jpg", context.cacheDir)
@@ -38,10 +44,28 @@ class PhotoSaver(private val context: Context) {
 
   /** Burn and publish an already captured JPEG. The caller retains ownership of [raw]. */
   suspend fun saveCaptured(raw: File, watermark: PreparedWatermark): Uri = withContext(Dispatchers.IO) {
+    val uri = saveFromOriginal(raw, watermark)
+    // The gallery transaction is already complete. Private history is best-effort.
+    var upright: File? = null
+    try {
+      upright = File.createTempFile("original_", ".jpg", context.cacheDir)
+      writeUprightOriginal(raw, upright)
+      originals.save(upright, OriginalRecord(
+        id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), galleryUri = uri.toString(),
+        content = watermark.content, config = watermark.config, frame = watermark.frame,
+      ))
+    } catch (error: Exception) {
+      Log.w("PhotoSaver", "无法保存原图，成片已保存到相册", error)
+    } finally { upright?.delete() }
+    uri
+  }
+
+  /** Publishes a new gallery image, leaving the original and its immutable sidecar untouched. */
+  suspend fun saveFromOriginal(original: File, watermark: PreparedWatermark): Uri = withContext(Dispatchers.IO) {
     val jpeg = File.createTempFile("watermark_", ".jpg", context.cacheDir)
     try {
       ensureActive()
-      WatermarkedJpegWriter().write(raw, jpeg, watermark)
+      WatermarkedJpegWriter().write(original, jpeg, watermark)
       ensureActive()
       saveToMediaStore(jpeg, watermark.content)
     } finally {

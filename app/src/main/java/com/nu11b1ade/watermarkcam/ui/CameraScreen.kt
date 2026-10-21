@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
@@ -72,6 +72,7 @@ fun CameraScreen(
   onSettings: () -> Unit,
   onCapture: (ImageCapture, PhotoFrame) -> Unit,
   onViewPhoto: () -> Unit,
+  onHistory: () -> Unit = {},
   modifier: Modifier = Modifier,
   /** Replaces the CameraX preview (JVM screenshot tests only); the screen then behaves as if the camera is ready. */
   previewPlaceholder: (@Composable () -> Unit)? = null,
@@ -172,7 +173,14 @@ fun CameraScreen(
           saving = state.saving,
           onClick = { capture?.let { camera -> frame?.let { onCapture(camera, it) } } },
         )
-        Spacer(Modifier.size(80.dp))
+        Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+          IconButton(
+            onClick = onHistory, enabled = !state.saving,
+            modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.14f), CircleShape),
+          ) {
+            Icon(Icons.Outlined.History, contentDescription = "历史照片", tint = Color.White, modifier = Modifier.size(28.dp))
+          }
+        }
       }
       Text(
         if (state.saving) "正在保存照片…" else "拍照后自动保存到相册",

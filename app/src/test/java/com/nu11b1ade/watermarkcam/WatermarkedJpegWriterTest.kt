@@ -7,15 +7,19 @@ import androidx.exifinterface.media.ExifInterface
 import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
+import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.history.OriginalRecord
+import com.nu11b1ade.watermarkcam.history.PhotoEditState
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import java.io.File
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -129,6 +133,39 @@ class WatermarkedJpegWriterTest {
       }
     }
     assertTrue("Extra large stays visibly larger after JPEG encoding: $heights", heights[1] > heights[0] * 1.4)
+  }
+
+  @Test fun `editing a saved original renders new pixels and edited EXIF without changing the original bytes`() {
+    val source = temporary.newFile("original.jpg")
+    createCameraJpeg(source)
+    val before = source.readBytes()
+    val record = OriginalRecord("original", 1792544887000L, "content://photos/1",
+      WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00[Asia/Shanghai]"), "上海", Coordinates(31.2, 121.5)),
+      WatermarkConfig(overrides = OverrideState(time = LocalDateTime.parse("2025-01-02T03:04:05"))), PhotoFrame(0.75))
+    val initial = PhotoEditState.from(record)
+    assertEquals("2025-01-02 03:04:05", initial.time)
+    val edited = initial.copy(time = "2024-05-06 07:08:09", place = "悉尼", latitude = "-33.86", longitude = "151.21",
+      weatherText = "多云 23°C", config = initial.config.copy(showCoordinates = true, showCustomText = true, customText = "重新打卡"))
+    val prepared = edited.prepare(record).getOrThrow()
+    val output = temporary.newFile("new-photo.jpg")
+    WatermarkedJpegWriter().write(source, output, prepared)
+
+    assertEquals("多云 23°C", prepared.card.weather)
+    assertEquals("悉尼", prepared.card.place)
+    assertEquals("重新打卡", prepared.card.tag)
+    val bitmap = BitmapFactory.decodeFile(output.path)
+    try {
+      assertEquals(480, bitmap.width)
+      assertEquals(270, bitmap.height)
+    } finally { bitmap.recycle() }
+    val exif = ExifInterface(output)
+    assertEquals("2024:05:06 07:08:09", exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL))
+    assertEquals("+08:00", exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL))
+    assertEquals(-33.86, exif.latLong!![0], 0.000001)
+    assertEquals(151.21, exif.latLong!![1], 0.000001)
+    assertEquals("2024:05:05", exif.getAttribute(ExifInterface.TAG_GPS_DATESTAMP))
+    assertEquals("23:08:09", exif.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP))
+    assertArrayEquals(before, source.readBytes())
   }
 
   private fun createCameraJpeg(file: File) {

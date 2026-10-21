@@ -22,16 +22,21 @@ import androidx.compose.ui.test.performScrollTo
 import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
+import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.WeatherReading
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.history.OriginalRecord
+import com.nu11b1ade.watermarkcam.history.PhotoEditState
 import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CameraUiState
+import com.nu11b1ade.watermarkcam.ui.HistoryScreen
+import com.nu11b1ade.watermarkcam.ui.PhotoEditScreen
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
 import java.io.File
@@ -40,6 +45,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.rules.TemporaryFolder
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -53,6 +59,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35], qualifiers = "zh-rCN-w411dp-h914dp-port-420dpi")
 class ScreenshotTest {
   @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+  @get:Rule val temporary = TemporaryFolder()
 
   private val coords = Coordinates(31.2304, 121.4737)
   private val observed = WatermarkContent(
@@ -112,6 +119,47 @@ class ScreenshotTest {
   @Test fun savedPhotoSample() = savedPhotoSample("v3-watermark-sample.jpg", config)
 
   @Test fun savedPhotoSampleLarge() = savedPhotoSample("v3-watermark-sample-large.jpg", config.copy(watermarkSize = WatermarkSize.XLARGE))
+
+  @Test fun historyList() {
+    val original = sampleOriginal()
+    val records = listOf("上海市黄浦区南京东路", "上海市浦东新区陆家嘴", "人民公园南门").mapIndexed { index, place ->
+      OriginalRecord("history-$index", 1792544887000L - index * 86_400_000L, "content://photos/$index",
+        observed.copy(capturedAt = observed.capturedAt.minusDays(index.toLong()), place = place), config, PhotoFrame(0.82))
+    }
+    shoot("v4-history.png", beforeCapture = {
+      compose.waitUntil(10_000) {
+        compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("历史照片缩略图", substring = true)).fetchSemanticsNodes().size == 3
+      }
+    }) {
+      HistoryScreen(records, originalFile = { original }, retentionDays = 7, onEdit = {}, onBack = {})
+    }
+  }
+
+  @Config(qualifiers = "zh-rCN-w411dp-h2300dp-port-420dpi")
+  @Test fun editPastPhoto() {
+    val original = sampleOriginal()
+    val record = OriginalRecord("edit", 1792544887000L, "content://photos/1", observed, config, PhotoFrame(0.82))
+    val edited = PhotoEditState.from(record).copy(time = "2025-05-06 07:08:09", place = "上海市浦东新区陆家嘴",
+      latitude = "31.2397", longitude = "121.4998", weatherText = "多云 23°C",
+      config = config.copy(showCustomText = true, customText = "今日打卡 · 平安喜乐", watermarkSize = WatermarkSize.LARGE))
+    shoot("v4-edit.png", beforeCapture = {
+      compose.waitUntil(10_000) {
+        compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("照片预览")).fetchSemanticsNodes().isNotEmpty()
+      }
+    }) {
+      PhotoEditScreen(record, original, onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() }, initial = edited)
+    }
+  }
+
+  private fun sampleOriginal(): File {
+    val file = temporary.newFile("original.jpg")
+    val bitmap = Bitmap.createBitmap(900, 1200, Bitmap.Config.ARGB_8888)
+    try {
+      Canvas(bitmap).drawStreet(900f, 1200f)
+      file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 94, it) }
+    } finally { bitmap.recycle() }
+    return file
+  }
 
   private fun savedPhotoSample(name: String, sampleConfig: WatermarkConfig) {
     val width = 3000

@@ -17,14 +17,20 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class WatermarkTest {
-  @Test fun `default config shows the standard fields without custom text`() {
+  @Test fun `default config hides the coordinate line but retains coordinates and weather`() {
     val config = WatermarkConfig()
-    val watermark = composeWatermark(config, WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00")))
+    val coords = Coordinates(31.2, 121.5)
+    val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "上海", coords, WeatherReading(coords, 23.0, "多云"))
+    val watermark = composeWatermark(config, observed)
 
+    assertFalse(config.showCoordinates)
+    assertNull(watermark.card.coordinates)
+    assertEquals(observed, watermark.content)
+    assertEquals("多云 23°C", watermark.card.weather)
     assertFalse(config.showCustomText)
     assertEquals("", config.customText)
     assertNull(watermark.card.tag)
-    assertEquals(4, watermark.lines.size)
+    assertEquals(3, watermark.lines.size)
   }
 
   @Test fun `place override without coordinates never leaks actual GPS or weather`() {
@@ -54,7 +60,7 @@ class WatermarkTest {
 
   @Test fun `automatic location keeps coordinate and weather placeholders when unavailable`() {
     val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "位置暂不可用")
-    val result = composeWatermark(WatermarkConfig(), observed)
+    val result = composeWatermark(WatermarkConfig(showCoordinates = true), observed)
 
     assertEquals(listOf("2026-10-21 09:08:07", "地点：位置暂不可用", "经纬度：--", "天气--"), result.lines)
     assertEquals("经纬度 暂无", result.card.coordinates)
@@ -73,6 +79,18 @@ class WatermarkTest {
     val result = composeWatermark(config, observed)
     assertEquals(emptyList<String>(), result.lines)
     assertEquals(observed.weather, result.content.weather)
+  }
+
+  @Test fun `explicit weather text is verbatim even at an unlocated place while blank or disabled hides it`() {
+    val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"))
+    val config = WatermarkConfig(weatherText = "多云 23°C", overrides = OverrideState(place = PlaceOverride("妈妈家")))
+    val result = composeWatermark(config, observed)
+    assertEquals("多云 23°C", result.card.weather)
+    assertEquals("多云 23°C", result.lines.last())
+    assertNull(result.content.coordinates)
+    assertNull(composeWatermark(config.copy(weatherText = ""), observed).card.weather)
+    assertEquals(2, composeWatermark(config.copy(weatherText = ""), observed).lines.size)
+    assertNull(composeWatermark(config.copy(showWeather = false), observed).card.weather)
   }
 
   @Test fun `field toggles and whitespace edits affect only visible lines`() {
@@ -116,7 +134,7 @@ class WatermarkTest {
 
       assertEquals(
         listOf("2026-10-21 09:08:07", "地点：上海市 黄浦区", "经纬度：31.230400, 121.473700", "天气：23.6°C 晴"),
-        composeWatermark(WatermarkConfig(), observed).lines,
+        composeWatermark(WatermarkConfig(showCoordinates = true), observed).lines,
       )
     } finally {
       Locale.setDefault(previousLocale)

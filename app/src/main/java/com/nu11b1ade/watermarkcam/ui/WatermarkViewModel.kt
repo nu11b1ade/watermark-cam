@@ -17,6 +17,11 @@ import com.nu11b1ade.watermarkcam.location.FixedLocationSource
 import com.nu11b1ade.watermarkcam.location.LocationReading
 import com.nu11b1ade.watermarkcam.location.PlatformLocationSource
 import com.nu11b1ade.watermarkcam.save.PhotoSaver
+import com.nu11b1ade.watermarkcam.history.OriginalRecord
+import com.nu11b1ade.watermarkcam.history.OriginalsStore
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.nu11b1ade.watermarkcam.weather.OpenMeteoWeatherSource
 import java.io.IOException
 import java.time.ZonedDateTime
@@ -40,15 +45,20 @@ data class CameraUiState(
   val saving: Boolean = false,
   val lastSaved: Uri? = null,
   val notice: Notice? = null,
+  val retentionDays: Int? = 7,
+  val history: List<OriginalRecord> = emptyList(),
+  val historyLoading: Boolean = false,
 )
 
 class WatermarkViewModel(application: Application) : AndroidViewModel(application) {
   private val settings = SettingsStore(application)
   private val locationSource = PlatformLocationSource(application)
   private val weatherSource = OpenMeteoWeatherSource()
-  private val photoSaver = PhotoSaver(application)
+  private val originals = OriginalsStore(File(application.filesDir, "originals"))
+  private val photoSaver = PhotoSaver(application, originals)
   private val mutableState = MutableStateFlow(CameraUiState(
     config = settings.load(),
+    retentionDays = settings.loadRetentionDays(),
     observed = WatermarkContent(ZonedDateTime.now(), "未开启定位（可手动设置）"),
   ))
   val state = mutableState.asStateFlow()
@@ -56,6 +66,56 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
   private var weatherJob: Job? = null
   private var clockJob: Job? = null
   private var foreground = false
+
+  init { cleanupOriginals() }
+
+  fun originalFile(id: String): File = originals.originalFile(id)
+
+  fun updateRetention(days: Int?) {
+    settings.saveRetentionDays(days)
+    mutableState.update { it.copy(retentionDays = days) }
+    cleanupOriginals()
+  }
+
+  private fun cleanupOriginals() {
+    val days = state.value.retentionDays
+    viewModelScope.launch {
+      runCatching { withContext(Dispatchers.IO) { originals.cleanup(days) } }
+    }
+  }
+
+  fun loadHistory() {
+    mutableState.update { it.copy(historyLoading = true) }
+    viewModelScope.launch {
+      val records = runCatching {
+        withContext(Dispatchers.IO) { originals.cleanup(state.value.retentionDays); originals.list() }
+      }.getOrDefault(emptyList())
+      mutableState.update { it.copy(history = records, historyLoading = false) }
+    }
+  }
+
+  fun historyRecord(id: String): OriginalRecord? = state.value.history.firstOrNull { it.id == id }
+
+  /** Renders a new gallery photo from the private original; the old photo and record stay untouched. */
+  fun saveEdited(record: OriginalRecord, watermark: PreparedWatermark, onDone: () -> Unit = {}) {
+    if (state.value.saving) return
+    mutableState.update { it.copy(saving = true) }
+    viewModelScope.launch {
+      try {
+        val uri = photoSaver.saveFromOriginal(originals.originalFile(record.id), watermark)
+        mutableState.update { it.copy(lastSaved = uri, notice = Notice("已保存为新照片")) }
+        onDone()
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (_: SecurityException) {
+        showNotice("权限不足，请检查相册权限")
+      } catch (_: Exception) {
+        showNotice("保存失败，原图可能已被清理，请重试")
+      } finally {
+        mutableState.update { it.copy(saving = false) }
+      }
+    }
+  }
 
   fun enterForeground(hasLocationPermission: Boolean) {
     foreground = true

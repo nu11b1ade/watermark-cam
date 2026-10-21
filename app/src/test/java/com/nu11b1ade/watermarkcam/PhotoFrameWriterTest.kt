@@ -48,7 +48,13 @@ class PhotoFrameWriterTest {
       assertEquals(480, photo.height)
       assertTrue("Visible scene is retained rather than the magenta area underneath the controls",
         Color.green(photo.getPixel(470, 470)) > 150)
-      assertTrue("Watermark sits at the visible frame's bottom-left", Color.blue(photo.getPixel(40, 450)) < 140)
+      assertTrue("No background panel beside the text", Color.blue(photo.getPixel(360, 450)) > 190)
+      assertTrue("White watermark text sits at the visible frame's bottom-left", (430 until 466).any { y ->
+        (16 until 120).any { x ->
+          val pixel = photo.getPixel(x, y)
+          Color.red(pixel) > 225 && Color.green(pixel) > 225 && Color.blue(pixel) > 225
+        }
+      })
     } finally {
       photo.recycle()
     }

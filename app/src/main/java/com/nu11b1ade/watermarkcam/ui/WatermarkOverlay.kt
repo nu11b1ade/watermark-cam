@@ -15,7 +15,7 @@ import com.nu11b1ade.watermarkcam.watermark.WatermarkCardRenderer
 fun WatermarkOverlay(card: WatermarkCard, modifier: Modifier = Modifier) {
   val renderer = remember(card) { WatermarkCardRenderer(card) }
   val description = listOfNotNull(
-    card.tag, card.time?.let { "${it.clock}，${it.date}，${it.weekday}" }, card.place, card.coordinates, card.weather,
+    card.time?.let { "${it.clock}，${it.date}，${it.weekday}" }, card.place, card.coordinates, card.weather, card.tag,
   ).joinToString("，")
   Canvas(modifier.semantics { contentDescription = description }) {
     drawIntoCanvas { renderer.draw(it.nativeCanvas, size.width, size.height) }

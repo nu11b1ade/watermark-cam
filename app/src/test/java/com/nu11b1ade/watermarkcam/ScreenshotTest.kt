@@ -20,6 +20,7 @@ import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
+import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.WeatherReading
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
@@ -28,7 +29,6 @@ import com.nu11b1ade.watermarkcam.ui.CameraUiState
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
 import java.io.File
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -50,14 +50,14 @@ class ScreenshotTest {
 
   private val coords = Coordinates(31.2304, 121.4737)
   private val observed = WatermarkContent(
-    capturedAt = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")),
+    capturedAt = ZonedDateTime.parse("2026-10-21T09:08:07+08:00[Asia/Shanghai]"),
     place = "上海市黄浦区南京东路",
     coordinates = coords,
     weather = WeatherReading(coords, 22.0, "多云"),
   )
-  private val config = WatermarkConfig(customText = "今日打卡")
+  private val config = WatermarkConfig()
 
-  @Test fun mainCameraScreen() = shoot("v2-main.png") {
+  @Test fun mainCameraScreen() = shoot("v3-main.png") {
     CameraScreen(
       state = CameraUiState(config = config, observed = observed),
       cameraGranted = true, locationGranted = true,
@@ -67,7 +67,7 @@ class ScreenshotTest {
     )
   }
 
-  @Test fun settingsScreen() = shoot("v2-settings.png") {
+  @Test fun settingsScreen() = shoot("v3-settings.png") {
     SettingsScreen(
       config = config.copy(overrides = OverrideState(place = PlaceOverride("上海市黄浦区南京东路", coords))),
       onSave = {}, onBack = {},
@@ -76,14 +76,18 @@ class ScreenshotTest {
 
   /** Same screen on a very tall window so every section (incl. 手动地点) is visible in one image. */
   @Config(qualifiers = "zh-rCN-w411dp-h1800dp-port-420dpi")
-  @Test fun settingsScreenFull() = shoot("v2-settings-full.png") {
+  @Test fun settingsScreenFull() = shoot("v3-settings-full.png") {
     SettingsScreen(
       config = config.copy(overrides = OverrideState(place = PlaceOverride("上海市黄浦区南京东路", coords))),
       onSave = {}, onBack = {},
     )
   }
 
-  @Test fun savedPhotoSample() {
+  @Test fun savedPhotoSample() = savedPhotoSample("v3-watermark-sample.jpg", config)
+
+  @Test fun savedPhotoSampleLarge() = savedPhotoSample("v3-watermark-sample-large.jpg", config.copy(watermarkSize = WatermarkSize.XLARGE))
+
+  private fun savedPhotoSample(name: String, sampleConfig: WatermarkConfig) {
     val width = 3000
     val height = 4000
     val scene = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -91,9 +95,12 @@ class ScreenshotTest {
     val source = File.createTempFile("sample", ".jpg")
     source.outputStream().use { scene.compress(Bitmap.CompressFormat.JPEG, 92, it) }
     scene.recycle()
-    val out = outFile("v2-watermark-sample.jpg")
-    WatermarkedJpegWriter().write(source, out, composeWatermark(config, observed))
-    source.delete()
+    val out = outFile(name)
+    try {
+      WatermarkedJpegWriter().write(source, out, composeWatermark(sampleConfig, observed))
+    } finally {
+      source.delete()
+    }
     assertTrue(out.length() > 0)
   }
 

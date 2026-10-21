@@ -6,13 +6,14 @@ import java.util.Locale
 
 data class WatermarkTime(val clock: String, val date: String, val weekday: String)
 
-/** Already formatted effective values, shared by the live card and the burned-in card. */
+/** Formatted effective values and size, shared by the live overlay and the burned-in text. */
 data class WatermarkCard(
   val time: WatermarkTime? = null,
   val place: String? = null,
   val coordinates: String? = null,
   val weather: String? = null,
   val tag: String? = null,
+  val watermarkSize: WatermarkSize = WatermarkSize.MEDIUM,
 )
 
 private val clockFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
@@ -41,4 +42,5 @@ fun formatWatermarkCard(config: WatermarkConfig, effective: WatermarkContent): W
   coordinates = if (config.showCoordinates) formatWatermarkCoordinates(effective.coordinates) else null,
   weather = if (config.showWeather) formatWatermarkWeather(effective.weather) else null,
   tag = if (config.showCustomText) cleanWatermarkText(config.customText).takeIf { it.isNotBlank() } else null,
+  watermarkSize = config.watermarkSize,
 )

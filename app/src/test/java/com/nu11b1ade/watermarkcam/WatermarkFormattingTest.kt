@@ -54,7 +54,7 @@ class WatermarkFormattingTest {
       WeatherReading(coordinates, 17.0, "晴间多云"),
     )
     val card = composeWatermark(WatermarkConfig(
-      customText = "  今日\n 打卡  ",
+      showCustomText = true, customText = "  今日\n 打卡  ",
       overrides = OverrideState(LocalDateTime.parse("2024-05-06T07:08:09"), PlaceOverride("  上海\n 黄浦区  ", coordinates)),
     ), observed).card
 
@@ -78,18 +78,18 @@ class WatermarkFormattingTest {
       hidden.copy(showPlace = true) to WatermarkCard(place = "公园南门"),
       hidden.copy(showCoordinates = true) to WatermarkCard(coordinates = "经纬度 暂无"),
       hidden.copy(showWeather = true) to WatermarkCard(weather = "天气 暂无"),
-      hidden.copy(showCustomText = true) to WatermarkCard(tag = "今日打卡"),
+      hidden.copy(showCustomText = true, customText = "平安喜乐") to WatermarkCard(tag = "平安喜乐"),
     )
     examples.forEach { (config, expected) -> assertEquals(expected, composeWatermark(config, observed).card) }
   }
 
-  @Test fun `blank custom text has no chip and unavailable effective fields have readable placeholders`() {
+  @Test fun `blank custom text has no row and unavailable effective fields have readable placeholders`() {
     val coordinates = Coordinates(31.2304, 121.4737)
     val observed = WatermarkContent(
       ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "", coordinates, WeatherReading(coordinates, 17.0, "晴"),
     )
     val card = composeWatermark(WatermarkConfig(
-      showTime = false, customText = " \n ", overrides = OverrideState(place = PlaceOverride("家")),
+      showTime = false, showCustomText = true, customText = " \n ", overrides = OverrideState(place = PlaceOverride("家")),
     ), observed).card
     assertEquals(WatermarkCard(place = "家", coordinates = "经纬度 暂无", weather = "天气 暂无"), card)
     assertEquals("地点 暂无", composeWatermark(WatermarkConfig(), observed).card.place)

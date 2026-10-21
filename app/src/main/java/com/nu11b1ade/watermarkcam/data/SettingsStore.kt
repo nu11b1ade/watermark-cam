@@ -7,6 +7,7 @@ import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
+import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.parseOverrides
 
 class SettingsStore(context: Context) {
@@ -30,6 +31,8 @@ class SettingsStore(context: Context) {
       showCustomText = preferences.getBoolean("showCustomText", defaults.showCustomText),
       customText = preferences.getString("customText", defaults.customText).orEmpty().take(MAX_WATERMARK_TEXT_LENGTH),
       overrides = overrides,
+      watermarkSize = WatermarkSize.entries.find { it.name == preferences.getString("watermarkSize", null) }
+        ?: defaults.watermarkSize,
     )
   }
 
@@ -41,6 +44,7 @@ class SettingsStore(context: Context) {
       putBoolean("showWeather", config.showWeather)
       putBoolean("showCustomText", config.showCustomText)
       putString("customText", config.customText)
+      putString("watermarkSize", config.watermarkSize.name)
       putBoolean("overrideTime", config.overrides.time != null)
       putString("time", config.overrides.time?.format(WATERMARK_TIME_FORMAT))
       putBoolean("overridePlace", config.overrides.place != null)

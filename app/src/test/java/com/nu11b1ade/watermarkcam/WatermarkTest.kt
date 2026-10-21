@@ -11,10 +11,21 @@ import java.time.ZonedDateTime
 import java.time.LocalDateTime
 import java.util.Locale
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class WatermarkTest {
+  @Test fun `default config shows the standard fields without custom text`() {
+    val config = WatermarkConfig()
+    val watermark = composeWatermark(config, WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00")))
+
+    assertFalse(config.showCustomText)
+    assertEquals("", config.customText)
+    assertNull(watermark.card.tag)
+    assertEquals(4, watermark.lines.size)
+  }
+
   @Test fun `place override without coordinates never leaks actual GPS or weather`() {
     val coordinates = Coordinates(31.2, 121.5)
     val observed = WatermarkContent(
@@ -25,7 +36,7 @@ class WatermarkTest {
 
     assertNull(result.content.coordinates)
     assertNull(result.content.weather)
-    assertEquals(listOf("2026-10-21 09:08:07", "地点：妈妈家", "经纬度：--", "天气--", "今日打卡"), result.lines)
+    assertEquals(listOf("2026-10-21 09:08:07", "地点：妈妈家", "经纬度：--", "天气--"), result.lines)
     assertEquals(observed, composeWatermark(WatermarkConfig(), observed).content)
   }
 
@@ -47,7 +58,7 @@ class WatermarkTest {
     val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "  公园\n  南门  ")
     val config = WatermarkConfig(
       showTime = false, showCoordinates = false, showWeather = false,
-      customText = "  平安\n\n 喜乐  ",
+      showCustomText = true, customText = "  平安\n\n 喜乐  ",
     )
     assertEquals(listOf("地点：公园 南门", "平安 喜乐"), composeWatermark(config, observed).lines)
   }
@@ -83,7 +94,7 @@ class WatermarkTest {
       )
 
       assertEquals(
-        listOf("2026-10-21 09:08:07", "地点：上海市 黄浦区", "经纬度：31.230400, 121.473700", "天气：23.6°C 晴", "今日打卡"),
+        listOf("2026-10-21 09:08:07", "地点：上海市 黄浦区", "经纬度：31.230400, 121.473700", "天气：23.6°C 晴"),
         composeWatermark(WatermarkConfig(), observed).lines,
       )
     } finally {

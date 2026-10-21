@@ -63,10 +63,12 @@ class PhotoSaverInstrumentedTest {
         assertEquals(1280, photo.width)
         assertEquals(960, photo.height)
         // Ignore small JPEG re-encoding noise: the lower-left watermark must change many pixels substantially.
-        val changed = (800 until 880).sumOf { y ->
-          (100 until 900).count { x -> colorDifference(source.getPixel(x, y), photo.getPixel(x, y)) > 40 }
+        val changed = (680 until 940).sumOf { y ->
+          (25 until 500).count { x -> colorDifference(source.getPixel(x, y), photo.getPixel(x, y)) > 40 }
         }
-        assertTrue("Watermark is burned into the saved pixels", changed > 32_000)
+        assertTrue("Text is burned into the saved pixels", changed > 2_000)
+        assertTrue("No background card beside the text",
+          colorDifference(source.getPixel(720, 880), photo.getPixel(720, 880)) < 15)
         assertTrue("Pixels away from watermark retain the source image",
           colorDifference(source.getPixel(640, 120), photo.getPixel(640, 120)) < 15)
       } finally {

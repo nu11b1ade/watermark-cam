@@ -9,6 +9,7 @@ import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
+import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import java.io.File
@@ -84,9 +85,9 @@ class WatermarkedJpegWriterTest {
       assertEquals(360, photo.width)
       assertEquals(480, photo.height)
       assertTrue("Image away from watermark is retained", Color.blue(photo.getPixel(30, 30)) > 190)
-      assertTrue("Bottom-left watermark has a dark background", Color.blue(photo.getPixel(30, 460)) < 140)
-      assertTrue("Watermark has actual white text pixels", (240 until 455).any { y ->
-        (22 until 338).any { x ->
+      assertTrue("No background panel beside the text", Color.blue(photo.getPixel(300, 440)) > 190)
+      assertTrue("Watermark has actual white text pixels", (340 until 466).any { y ->
+        (8 until 270).any { x ->
           val pixel = photo.getPixel(x, y)
           Color.red(pixel) > 225 && Color.green(pixel) > 225 && Color.blue(pixel) > 225
         }
@@ -101,6 +102,33 @@ class WatermarkedJpegWriterTest {
     assertNull(exif.latLong)
     assertNull(exif.getAttribute(ExifInterface.TAG_GPS_TIMESTAMP))
     assertEquals(ExifInterface.ORIENTATION_NORMAL, exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 0))
+  }
+
+  @Test fun `JPEG writer retains the selected watermark size from the prepared config`() {
+    val source = temporary.newFile("size-camera.jpg")
+    createCameraJpeg(source)
+    val heights = listOf(WatermarkSize.MEDIUM, WatermarkSize.XLARGE).map { size ->
+      val output = temporary.newFile("${size.name}.jpg")
+      val watermark = composeWatermark(
+        WatermarkConfig(showPlace = false, showCoordinates = false, showWeather = false, watermarkSize = size),
+        WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00")),
+      )
+      WatermarkedJpegWriter().write(source, output, watermark)
+      val photo = requireNotNull(BitmapFactory.decodeFile(output.path))
+      try {
+        val whiteRows = (0 until photo.height).filter { y ->
+          (0 until photo.width).any { x ->
+            val pixel = photo.getPixel(x, y)
+            Color.red(pixel) > 225 && Color.green(pixel) > 225 && Color.blue(pixel) > 225
+          }
+        }
+        assertTrue("$size writes visible text", whiteRows.isNotEmpty())
+        whiteRows.last() - whiteRows.first() + 1
+      } finally {
+        photo.recycle()
+      }
+    }
+    assertTrue("Extra large stays visibly larger after JPEG encoding: $heights", heights[1] > heights[0] * 1.4)
   }
 
   private fun createCameraJpeg(file: File) {

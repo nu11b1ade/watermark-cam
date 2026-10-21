@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +68,7 @@ import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.OverrideInput
 import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
+import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.parseOverrides
 import com.nu11b1ade.watermarkcam.domain.toggleCoordinateSign
 import java.time.Instant
@@ -88,6 +90,7 @@ fun SettingsScreen(
   var showWeather by rememberSaveable { mutableStateOf(config.showWeather) }
   var showCustomText by rememberSaveable { mutableStateOf(config.showCustomText) }
   var customText by rememberSaveable { mutableStateOf(config.customText) }
+  var watermarkSize by rememberSaveable { mutableStateOf(config.watermarkSize) }
   var timeEnabled by rememberSaveable { mutableStateOf(config.overrides.time != null) }
   var time by rememberSaveable { mutableStateOf((config.overrides.time ?: LocalDateTime.now()).format(WATERMARK_TIME_FORMAT)) }
   var placeEnabled by rememberSaveable { mutableStateOf(config.overrides.place != null) }
@@ -135,7 +138,7 @@ fun SettingsScreen(
                 onSave(config.copy(
                   showTime = showTime, showPlace = showPlace, showCoordinates = showCoordinates,
                   showWeather = showWeather, showCustomText = showCustomText, customText = customText,
-                  overrides = values,
+                  overrides = values, watermarkSize = watermarkSize,
                 ))
               }
             },
@@ -149,6 +152,21 @@ fun SettingsScreen(
       Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp),
       verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+      SettingsSection("水印大小", "按画面比例缩放，预览与成片大小一致") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          WatermarkSize.entries.forEach { size ->
+            FilterChip(
+              selected = watermarkSize == size, onClick = { watermarkSize = size }, modifier = Modifier.weight(1f),
+              label = { Text(when (size) {
+                WatermarkSize.SMALL -> "小"
+                WatermarkSize.MEDIUM -> "中"
+                WatermarkSize.LARGE -> "大"
+                WatermarkSize.XLARGE -> "特大"
+              }) },
+            )
+          }
+        }
+      }
       SettingsSection("水印内容", "选择照片上要显示的信息") {
         FieldSwitch("时间", showTime) { showTime = it }
         FieldSwitch("地点", showPlace) { showPlace = it }
@@ -159,7 +177,7 @@ fun SettingsScreen(
         OutlinedTextField(
           value = customText, onValueChange = { customText = it.take(MAX_WATERMARK_TEXT_LENGTH) },
           enabled = showCustomText, label = { Text("想写在照片上的话") },
-          supportingText = { Text("例如：今日打卡、平安喜乐 · ${customText.length}/$MAX_WATERMARK_TEXT_LENGTH") },
+          supportingText = { Text("例如：平安喜乐 · ${customText.length}/$MAX_WATERMARK_TEXT_LENGTH") },
           modifier = Modifier.fillMaxWidth(), maxLines = 3, shape = RoundedCornerShape(14.dp),
         )
       }

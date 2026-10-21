@@ -25,9 +25,10 @@ data class WatermarkConfig(
   val showPlace: Boolean = true,
   val showCoordinates: Boolean = true,
   val showWeather: Boolean = true,
-  val showCustomText: Boolean = true,
-  val customText: String = "今日打卡",
+  val showCustomText: Boolean = false,
+  val customText: String = "",
   val overrides: OverrideState = OverrideState(),
+  val watermarkSize: WatermarkSize = WatermarkSize.MEDIUM,
 )
 
 data class WatermarkContent(

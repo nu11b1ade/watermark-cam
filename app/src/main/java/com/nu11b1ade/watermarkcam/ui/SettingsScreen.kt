@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -28,8 +26,6 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -42,12 +38,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,8 +54,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.nu11b1ade.watermarkcam.BuildConfig
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.OverrideInput
@@ -75,10 +65,7 @@ import com.nu11b1ade.watermarkcam.domain.toggleCoordinateSign
 import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.LocationReading
 import com.nu11b1ade.watermarkcam.update.UpdateCheckState
-import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -294,46 +281,6 @@ internal fun CoordinateField(
     },
     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
   )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun OverrideDatePicker(value: LocalDate, onDismiss: () -> Unit, onConfirm: (LocalDate) -> Unit) {
-  // Material3 date selections are UTC midnights, not device-local instants.
-  val picker = rememberDatePickerState(
-    initialSelectedDateMillis = value.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(), yearRange = 1..9999,
-  )
-  DatePickerDialog(
-    onDismissRequest = onDismiss,
-    confirmButton = {
-      TextButton(enabled = picker.selectedDateMillis != null, onClick = {
-        picker.selectedDateMillis?.let { onConfirm(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
-      }) { Text("确定") }
-    },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-  ) {
-    DatePicker(picker, title = { Text("选择日期", Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp)) })
-  }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun OverrideTimePicker(value: LocalDateTime, onDismiss: () -> Unit, onConfirm: (Int, Int) -> Unit) {
-  val picker = rememberTimePickerState(initialHour = value.hour, initialMinute = value.minute, is24Hour = true)
-  Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-    Surface(Modifier.widthIn(max = 400.dp).fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(28.dp),
-      color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-      Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Text("选择时间", style = MaterialTheme.typography.titleMedium)
-        TimePicker(picker, modifier = Modifier.align(Alignment.CenterHorizontally))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-          TextButton(onClick = onDismiss) { Text("取消") }
-          Spacer(Modifier.size(8.dp))
-          TextButton(onClick = { onConfirm(picker.hour, picker.minute) }) { Text("确定") }
-        }
-      }
-    }
-  }
 }
 
 @Composable

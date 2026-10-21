@@ -14,8 +14,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -32,10 +37,13 @@ import com.nu11b1ade.watermarkcam.history.OriginalRecord
 import com.nu11b1ade.watermarkcam.history.PhotoEditState
 import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.PlaceCandidate
+import com.nu11b1ade.watermarkcam.location.LocationPermissionState
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CameraUiState
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
+import com.nu11b1ade.watermarkcam.ui.OverrideDatePicker
+import com.nu11b1ade.watermarkcam.ui.OverrideTimePicker
 import com.nu11b1ade.watermarkcam.ui.PhotoEditScreen
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.UpdateDialog
@@ -46,6 +54,7 @@ import com.nu11b1ade.watermarkcam.update.UpdateDialogState
 import com.nu11b1ade.watermarkcam.update.UpdateManifest
 import java.io.File
 import java.time.ZonedDateTime
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -83,11 +92,48 @@ class ScreenshotTest {
   @Test fun mainCameraScreen() = shoot("v3-main.png") {
     CameraScreen(
       state = CameraUiState(config = config, observed = observed),
-      cameraGranted = true, locationGranted = true,
+      cameraGranted = true, locationPermission = LocationPermissionState.Granted,
       onRequestCamera = {}, onOpenPermissions = {}, onLocation = {}, onSettings = {},
       onCapture = { _, _ -> }, onViewPhoto = {},
       previewPlaceholder = { FakeStreet() },
     )
+  }
+
+  @Test fun cameraLocationDenied() {
+    var authorizations = 0
+    shoot("v6-location-denied.png", beforeCapture = {
+      compose.onNodeWithText("需要位置权限才能显示地点和天气").assertIsDisplayed()
+      compose.onNodeWithText("授权").performClick()
+      compose.onNodeWithText("去设置").assertDoesNotExist()
+      compose.onNodeWithContentDescription("拍照").assertIsDisplayed().assertIsEnabled()
+      assertEquals(1, authorizations)
+    }) {
+      CameraScreen(
+        state = CameraUiState(config, observed.copy(place = "未开启定位（可手动设置）", coordinates = null, weather = null)),
+        cameraGranted = true, locationPermission = LocationPermissionState.CanAsk,
+        onRequestCamera = {}, onOpenPermissions = {}, onLocation = { authorizations++ }, onSettings = {},
+        onCapture = { _, _ -> }, onViewPhoto = {}, previewPlaceholder = { FakeStreet() },
+      )
+    }
+  }
+
+  @Test fun cameraLocationPermanentlyDenied() {
+    var settingsOpened = 0
+    shoot("v6-location-permanently-denied.png", beforeCapture = {
+      val banner = compose.onNodeWithText("需要位置权限才能显示地点和天气").assertIsDisplayed()
+      compose.onNodeWithText("授权").assertIsDisplayed()
+      compose.onNodeWithText("去设置").performClick()
+      val shutter = compose.onNodeWithContentDescription("拍照").assertIsDisplayed().assertIsEnabled()
+      assertTrue(banner.fetchSemanticsNode().boundsInRoot.bottom < shutter.fetchSemanticsNode().boundsInRoot.top)
+      assertEquals(1, settingsOpened)
+    }) {
+      CameraScreen(
+        state = CameraUiState(config, observed.copy(place = "未开启定位（可手动设置）", coordinates = null, weather = null)),
+        cameraGranted = true, locationPermission = LocationPermissionState.PermanentlyDenied,
+        onRequestCamera = {}, onOpenPermissions = { settingsOpened++ }, onLocation = {}, onSettings = {},
+        onCapture = { _, _ -> }, onViewPhoto = {}, previewPlaceholder = { FakeStreet() },
+      )
+    }
   }
 
   @Test fun settingsScreen() = shoot("v3-settings.png") {
@@ -95,6 +141,28 @@ class ScreenshotTest {
       config = config.copy(overrides = OverrideState(place = PlaceOverride("上海市黄浦区南京东路", coords))),
       onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() },
     )
+  }
+
+  @Test fun timeWheelDialog() = shoot("v6-time-wheel-dialog.png", captureDialog = true, beforeCapture = {
+    compose.onNodeWithText("选择时间").assertIsDisplayed()
+    compose.onNodeWithContentDescription("时").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "09时"))
+    compose.onNodeWithContentDescription("分").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "08分"))
+    compose.onNodeWithText("取消").assertIsDisplayed()
+    compose.onNodeWithText("确定").assertIsDisplayed().assertIsEnabled()
+  }) {
+    OverrideTimePicker(observed.capturedAt.toLocalDateTime(), onDismiss = {}, onConfirm = { _, _ -> })
+  }
+
+  @Config(qualifiers = "zh-rCN-w411dp-h914dp-port-night-420dpi")
+  @Test fun dateWheelDialog() = shoot("v6-date-wheel-dialog.png", captureDialog = true, beforeCapture = {
+    compose.onNodeWithText("选择日期").assertIsDisplayed()
+    compose.onNodeWithContentDescription("年").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "2026年"))
+    compose.onNodeWithContentDescription("月").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "10月"))
+    compose.onNodeWithContentDescription("日").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "21日"))
+    compose.onNodeWithText("取消").assertIsDisplayed()
+    compose.onNodeWithText("确定").assertIsDisplayed().assertIsEnabled()
+  }) {
+    OverrideDatePicker(observed.capturedAt.toLocalDate(), onDismiss = {}, yearRange = 2021..2027, onConfirm = {})
   }
 
   /** Same screen on a very tall window so every section (incl. 手动地点) is visible in one image. */

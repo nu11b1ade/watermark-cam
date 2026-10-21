@@ -59,13 +59,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.location.LocationPermissionState
 import com.nu11b1ade.watermarkcam.ui.theme.WarmOrange
 
 @Composable
 fun CameraScreen(
   state: CameraUiState,
   cameraGranted: Boolean,
-  locationGranted: Boolean,
+  locationPermission: LocationPermissionState,
   onRequestCamera: () -> Unit,
   onOpenPermissions: () -> Unit,
   onLocation: () -> Unit,
@@ -126,30 +127,40 @@ fun CameraScreen(
       }
     }
 
-    Row(
+    Column(
       Modifier.align(Alignment.TopCenter).fillMaxWidth()
         .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)))
         .windowInsetsPadding(WindowInsets.statusBars).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-      IconButton(
-        onClick = onLocation, enabled = !state.locating,
-        modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape)
-          .semantics {
-            contentDescription = if (locationGranted) "刷新定位和天气" else "开启定位"
-            if (state.locating) stateDescription = "正在刷新定位和天气"
-          },
+      Row(
+        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
       ) {
-        if (state.locating) CircularProgressIndicator(Modifier.size(22.dp), color = WarmOrange, strokeWidth = 2.dp)
-        else Icon(Icons.Outlined.MyLocation, contentDescription = null, tint = Color.White)
+        IconButton(
+          onClick = onLocation, enabled = !state.locating,
+          modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape)
+            .semantics {
+              contentDescription = if (locationPermission.isGranted) "刷新定位和天气" else "开启定位"
+              if (state.locating) stateDescription = "正在刷新定位和天气"
+            },
+        ) {
+          if (state.locating) CircularProgressIndicator(Modifier.size(22.dp), color = WarmOrange, strokeWidth = 2.dp)
+          else Icon(Icons.Outlined.MyLocation, contentDescription = null, tint = Color.White)
+        }
+        Text("水印相机", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
+        IconButton(
+          onClick = onSettings, enabled = !state.saving,
+          modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape),
+        ) {
+          Icon(Icons.Outlined.Settings, contentDescription = "打开设置", tint = Color.White)
+        }
       }
-      Text("水印相机", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
-      IconButton(
-        onClick = onSettings, enabled = !state.saving,
-        modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape),
-      ) {
-        Icon(Icons.Outlined.Settings, contentDescription = "打开设置", tint = Color.White)
+      if (!locationPermission.isGranted && state.config.overrides.place?.coordinates == null) {
+        LocationPermissionCard(
+          permanentlyDenied = locationPermission == LocationPermissionState.PermanentlyDenied,
+          onAuthorize = onLocation, onOpenPermissions = onOpenPermissions,
+          modifier = Modifier.padding(top = 12.dp).fillMaxWidth(),
+        )
       }
     }
 
@@ -186,6 +197,24 @@ fun CameraScreen(
         if (state.saving) "正在保存照片…" else "拍照后自动保存到相册",
         Modifier.padding(top = 12.dp), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
       )
+    }
+  }
+}
+
+@Composable
+private fun LocationPermissionCard(
+  permanentlyDenied: Boolean,
+  onAuthorize: () -> Unit,
+  onOpenPermissions: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Surface(modifier, shape = RoundedCornerShape(20.dp), color = Color(0xEE24201C)) {
+    Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 4.dp)) {
+      Text("需要位置权限才能显示地点和天气", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+      Row(Modifier.align(Alignment.End)) {
+        TextButton(onClick = onAuthorize) { Text("授权", color = WarmOrange) }
+        if (permanentlyDenied) TextButton(onClick = onOpenPermissions) { Text("去设置", color = WarmOrange) }
+      }
     }
   }
 }

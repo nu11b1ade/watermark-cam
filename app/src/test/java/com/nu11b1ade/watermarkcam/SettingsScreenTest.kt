@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.OverrideState
@@ -23,6 +24,7 @@ import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
 import java.io.IOException
+import java.time.LocalDateTime
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -51,6 +53,25 @@ class SettingsScreenTest {
     compose.onNodeWithText("保存设置").performClick()
 
     compose.runOnIdle { assertEquals(WatermarkConfig(watermarkSize = WatermarkSize.XLARGE), saved) }
+  }
+
+  @Test fun `custom time wheel changes are discarded on cancel and saved on confirm`() {
+    val original = LocalDateTime.of(2026, 10, 21, 9, 8, 7)
+    var saved: WatermarkConfig? = null
+    showSettings(WatermarkConfig(overrides = OverrideState(time = original)), onSave = { saved = it })
+    compose.onNodeWithText("时间 · 24小时制").performScrollTo().performClick()
+    compose.onNodeWithContentDescription("时").performSemanticsAction(SemanticsActions.SetProgress) { it(10f) }
+    compose.onNodeWithText("取消").performClick()
+    compose.onNodeWithText("09:08:07").assertIsDisplayed()
+
+    compose.onNodeWithText("时间 · 24小时制").performClick()
+    compose.onNodeWithContentDescription("时").performSemanticsAction(SemanticsActions.SetProgress) { it(10f) }
+    compose.onNodeWithContentDescription("分").performSemanticsAction(SemanticsActions.SetProgress) { it(11f) }
+    compose.onNodeWithText("确定").performClick()
+    compose.onNodeWithText("10:11:00").assertIsDisplayed()
+    compose.onNodeWithText("保存设置").performClick()
+
+    compose.runOnIdle { assertEquals(original.withHour(10).withMinute(11).withSecond(0), saved?.overrides?.time) }
   }
 
   private val candidates = listOf(

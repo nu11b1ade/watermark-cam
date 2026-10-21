@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class UpdateCheckerTest {
   private val github = "https://github.com/nu11b1ade/watermark-cam/releases/latest/download/latest.json"
-  private val gitee = "https://gitee.com/nu11b1ade/watermark-cam/releases/download/latest/latest.json"
+  private val gitee = "https://gitee.com/nullblade/watermark-cam/releases/download/latest/latest.json"
 
   @Test fun `GitHub is first and a valid manifest never calls Gitee`() = runBlocking {
     val calls = mutableListOf<String>()

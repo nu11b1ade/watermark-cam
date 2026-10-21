@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.Window
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
@@ -38,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
@@ -46,9 +49,13 @@ import androidx.lifecycle.withResumed
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nu11b1ade.watermarkcam.gallery.GalleryResolver
+import com.nu11b1ade.watermarkcam.gallery.galleryViewIntent
 import com.nu11b1ade.watermarkcam.location.AndroidForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.FallbackForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.NominatimForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.LocationPermissionState
+import com.nu11b1ade.watermarkcam.location.locationPermissionState
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
@@ -83,6 +90,7 @@ private fun WatermarkApp(
   updateModel: UpdateViewModel = viewModel(),
 ) {
   val context = LocalContext.current
+  val activity = checkNotNull(LocalActivity.current)
   val owner = LocalLifecycleOwner.current
   val state by model.state.collectAsStateWithLifecycle()
   val updateState by updateModel.state.collectAsStateWithLifecycle()
@@ -100,9 +108,18 @@ private fun WatermarkApp(
   val settingsOpen = screen != "camera"
   // Restored after process death: the in-memory history list must be reloaded.
   LaunchedEffect(Unit) { if (screen == "history" || screen.startsWith("edit:")) model.loadHistory() }
-  var cameraRequested by rememberSaveable { mutableStateOf(false) }
+  val permissionHistory = remember(context) { context.getSharedPreferences("permissions", Context.MODE_PRIVATE) }
+  fun readLocationPermission() = locationPermissionState(
+    fineGranted = context.hasPermission(Manifest.permission.ACCESS_FINE_LOCATION),
+    coarseGranted = context.hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION),
+    hasBeenDenied = permissionHistory.getBoolean("locationAsked", false) && permissionHistory.getBoolean("locationDenied", false),
+    fineRationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_FINE_LOCATION),
+    coarseRationale = ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_COARSE_LOCATION),
+  )
+  var permissionsAutoRequested by rememberSaveable { mutableStateOf(false) }
+  var permissionRequestInFlight by rememberSaveable { mutableStateOf(false) }
   var cameraGranted by remember { mutableStateOf(context.hasPermission(Manifest.permission.CAMERA)) }
-  var locationGranted by remember { mutableStateOf(context.hasLocationPermission()) }
+  var locationPermission by remember { mutableStateOf(readLocationPermission()) }
   var pendingCapture by remember { mutableStateOf<CaptureRequest?>(null) }
   val snackbar = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
@@ -117,12 +134,40 @@ private fun WatermarkApp(
     controller.isAppearanceLightNavigationBars = settingsOpen && !darkTheme
   }
 
-  val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-    cameraGranted = it
+  val runtimePermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+    permissionRequestInFlight = false
+    if (Manifest.permission.ACCESS_FINE_LOCATION in result || Manifest.permission.ACCESS_COARSE_LOCATION in result) {
+      // Asking and receiving a denial are separate: rationale=false during a first request is not permanent denial.
+      permissionHistory.edit { putBoolean("locationDenied", !context.hasLocationPermission()) }
+    }
+    cameraGranted = context.hasPermission(Manifest.permission.CAMERA)
+    locationPermission = readLocationPermission()
+    model.refreshEnvironment(locationPermission.isGranted)
   }
-  val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-    locationGranted = context.hasLocationPermission()
-    model.refreshEnvironment(locationGranted)
+  val requestPermissions: (List<String>) -> Unit = { permissions ->
+    val missing = permissions.filterNot(context::hasPermission)
+    if (missing.isNotEmpty() && !permissionRequestInFlight) {
+      if (Manifest.permission.ACCESS_FINE_LOCATION in missing || Manifest.permission.ACCESS_COARSE_LOCATION in missing) {
+        permissionHistory.edit { putBoolean("locationAsked", true) }
+      }
+      permissionRequestInFlight = true
+      runtimePermissions.launch(missing.toTypedArray())
+    }
+  }
+  val autoRequestPermissions = {
+    if (!permissionsAutoRequested && !permissionRequestInFlight) {
+      permissionsAutoRequested = true
+      requestPermissions(buildList {
+        add(Manifest.permission.CAMERA)
+        if (locationPermission == LocationPermissionState.CanAsk) {
+          add(Manifest.permission.ACCESS_FINE_LOCATION)
+          add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+      })
+    }
+  }
+  val openPermissions = {
+    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
   }
   val legacyStoragePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     val capture = pendingCapture
@@ -134,17 +179,18 @@ private fun WatermarkApp(
   }
 
   LaunchedEffect(Unit) {
-    if (!cameraGranted && !cameraRequested) {
-      cameraRequested = true
-      cameraPermission.launch(Manifest.permission.CAMERA)
-    }
+    owner.lifecycle.withResumed { autoRequestPermissions() }
   }
   DisposableEffect(owner, context, model) {
     val observer = LifecycleEventObserver { _, event ->
       if (event == Lifecycle.Event.ON_RESUME) {
         cameraGranted = context.hasPermission(Manifest.permission.CAMERA)
-        locationGranted = context.hasLocationPermission()
-        model.enterForeground(locationGranted)
+        locationPermission = readLocationPermission()
+        if (locationPermission.isGranted) permissionHistory.edit { putBoolean("locationDenied", false) }
+        // enterForeground refreshes the environment, including a grant made in system settings.
+        model.enterForeground(locationPermission.isGranted)
+        // Shares the launch guard: dialog returns and recreation must never start a second automatic request.
+        autoRequestPermissions()
       } else if (event == Lifecycle.Event.ON_PAUSE) {
         model.leaveForeground()
       }
@@ -216,12 +262,13 @@ private fun WatermarkApp(
       CameraScreen(
         state = state,
         cameraGranted = cameraGranted,
-        locationGranted = locationGranted,
-        onRequestCamera = { cameraRequested = true; cameraPermission.launch(Manifest.permission.CAMERA) },
-        onOpenPermissions = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) },
+        locationPermission = locationPermission,
+        onRequestCamera = { requestPermissions(listOf(Manifest.permission.CAMERA)) },
+        onOpenPermissions = openPermissions,
         onLocation = {
-          if (locationGranted) model.refreshEnvironment(true)
-          else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+          if (locationPermission.isGranted) model.refreshEnvironment(true)
+          else if (locationPermission == LocationPermissionState.PermanentlyDenied) openPermissions()
+          else requestPermissions(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         },
         onSettings = { screen = "settings" },
         onHistory = { model.loadHistory(); screen = "history" },
@@ -237,8 +284,9 @@ private fun WatermarkApp(
         onViewPhoto = {
           state.lastSaved?.let { uri ->
             try {
-              context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/jpeg")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+              context.startActivity(galleryViewIntent(uri, GalleryResolver { intent ->
+                context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+              }))
             } catch (_: ActivityNotFoundException) {
               model.showNotice("请打开系统相册，查看 WatermarkCam 相册")
             }

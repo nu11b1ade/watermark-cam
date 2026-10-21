@@ -35,12 +35,12 @@ dist/latest.json
 
 ## 清单与来源约定
 
-应用的更新地址集中在 `com.nu11b1ade.watermarkcam.update.UpdateConfig`。`GITEE_OWNER = "nu11b1ade"` 是待确认的镜像所有者占位值；镜像账号不同时修改它。发布脚本也读取此配置生成 APK 地址。
+应用的更新地址集中在 `com.nu11b1ade.watermarkcam.update.UpdateConfig`。Gitee 镜像所有者为 `nullblade`，由 `GITEE_OWNER = "nullblade"` 配置。发布脚本也读取此配置生成 APK 地址。
 
 应用按以下顺序获取 `latest.json`，连接和读取超时分别为 5 秒；网络异常或无效清单时尝试下一来源：
 
 1. GitHub：`https://github.com/nu11b1ade/watermark-cam/releases/latest/download/latest.json`
-2. Gitee：`https://gitee.com/nu11b1ade/watermark-cam/releases/download/latest/latest.json`
+2. Gitee：`https://gitee.com/nullblade/watermark-cam/releases/download/latest/latest.json`
 
 **Gitee 没有 `/releases/latest` 别名。** 必须保留一个固定 tag 为 **`latest`** 的滚动 release，每次发布都替换它的 `latest.json` 和 APK 附件。它与不可变的版本 release（如 `v0.2.0`）同时存在，不能仅上传版本 release。
 
@@ -53,7 +53,7 @@ dist/latest.json
   "notes": "新增应用内更新\n修复问题，提升稳定性",
   "apkUrls": {
     "github": "https://github.com/nu11b1ade/watermark-cam/releases/download/v0.2.0/watermark-cam-0.2.0.apk",
-    "gitee": "https://gitee.com/nu11b1ade/watermark-cam/releases/download/v0.2.0/watermark-cam-0.2.0.apk"
+    "gitee": "https://gitee.com/nullblade/watermark-cam/releases/download/v0.2.0/watermark-cam-0.2.0.apk"
   },
   "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 }

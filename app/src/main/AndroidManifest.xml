@@ -7,6 +7,17 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+  <queries>
+    <package android:name="com.miui.gallery" />
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:mimeType="image/*" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.APP_GALLERY" />
+    </intent>
+  </queries>
   <application
     android:label="水印相机"
     android:icon="@android:drawable/ic_menu_camera"

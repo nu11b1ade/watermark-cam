@@ -1,25 +1,39 @@
 package com.nu11b1ade.watermarkcam.ui
 
 import androidx.camera.core.ImageCapture
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,17 +44,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
-import com.nu11b1ade.watermarkcam.watermark.WatermarkStyle
+import com.nu11b1ade.watermarkcam.ui.theme.WarmOrange
 
 @Composable
 fun CameraScreen(
@@ -51,112 +70,138 @@ fun CameraScreen(
   onOpenPermissions: () -> Unit,
   onLocation: () -> Unit,
   onSettings: () -> Unit,
-  onCapture: (ImageCapture) -> Unit,
+  onCapture: (ImageCapture, PhotoFrame) -> Unit,
   onViewPhoto: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var capture by remember { mutableStateOf<ImageCapture?>(null) }
   var cameraError by remember { mutableStateOf<String?>(null) }
   var retry by remember { mutableIntStateOf(0) }
+  var controlsHeight by remember { mutableIntStateOf(0) }
+  var previewHeight by remember { mutableIntStateOf(0) }
+  val bottomSpace = with(LocalDensity.current) { controlsHeight.toDp() }
+  val frame = if (controlsHeight > 0 && previewHeight > controlsHeight) PhotoFrame.aboveControls(previewHeight, controlsHeight) else null
   val watermark = composeWatermark(state.config, state.observed)
-  val overridden = state.config.overrides.time != null || state.config.overrides.place != null
 
-  Column(modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-      Text("水印相机", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-      TextButton(onClick = onSettings, enabled = !state.saving) { Text("设置") }
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-      Text(
-        if (overridden) "手动覆盖已开启 · 图片与 EXIF 同步" else "记录日常，保存后在微信中发送",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.weight(1f),
+  Box(modifier.fillMaxSize().background(Color.Black).onSizeChanged { previewHeight = it.height }) {
+    if (cameraGranted) {
+      CameraPreview(
+        retry = retry,
+        onReady = { capture = it; if (it != null) cameraError = null },
+        onError = { cameraError = it; capture = null },
+        modifier = Modifier.fillMaxSize(),
       )
-      TextButton(onClick = onLocation, enabled = !state.locating) {
-        Text(if (state.locating) "定位中…" else if (locationGranted) "刷新定位" else "启用定位")
+      if (controlsHeight > 0 && cameraError == null) {
+        WatermarkOverlay(watermark.card, Modifier.fillMaxSize().padding(bottom = bottomSpace))
       }
     }
-    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().background(Color.Black), contentAlignment = Alignment.Center) {
-      if (cameraGranted) {
-        val width = minOf(maxWidth, maxHeight * 0.75f)
-        Box(Modifier.width(width).aspectRatio(0.75f).clip(RoundedCornerShape(8.dp))) {
-          CameraPreview(
-            retry = retry,
-            onReady = { capture = it; if (it != null) cameraError = null },
-            onError = { cameraError = it; capture = null },
-            modifier = Modifier.fillMaxSize(),
-          )
-          WatermarkOverlay(watermark.lines, Modifier.align(Alignment.BottomStart))
-          if (capture == null && cameraError == null) {
-            Text("相机准备中…", Modifier.align(Alignment.TopCenter).padding(16.dp), color = Color.White)
-          }
-          cameraError?.let { error ->
-            Column(
-              Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.8f)).padding(20.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-              Text(error)
-              OutlinedButton(onClick = { cameraError = null; retry++ }) { Text("重试相机") }
-            }
-          }
-        }
-      } else {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-          Text("开启相机权限，即可拍摄水印照片", style = MaterialTheme.typography.titleMedium)
-          Text("定位可选，也可在设置中手动填写地点", Modifier.padding(vertical = 12.dp))
-          Button(onClick = onRequestCamera) { Text("开启相机") }
-          TextButton(onClick = onOpenPermissions) { Text("去系统设置") }
-        }
-      }
-    }
-    Row(
-      Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 24.dp),
-      horizontalArrangement = Arrangement.SpaceEvenly,
-      verticalAlignment = Alignment.CenterVertically,
+    Box(
+      Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 64.dp, bottom = bottomSpace),
+      contentAlignment = Alignment.Center,
     ) {
-      TextButton(onClick = onViewPhoto, enabled = state.lastSaved != null && !state.saving) { Text("查看照片") }
-      Button(
-        onClick = { capture?.let(onCapture) },
-        enabled = cameraGranted && capture != null && !state.saving,
-        modifier = Modifier.size(80.dp),
-        shape = CircleShape,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF2F5F3)),
-      ) {
-        if (state.saving) CircularProgressIndicator(Modifier.size(28.dp))
-        else Text("拍照", color = Color(0xFF16251C), style = MaterialTheme.typography.titleMedium)
+      if (cameraGranted && capture == null && cameraError == null) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          CircularProgressIndicator(Modifier.size(32.dp), color = WarmOrange)
+          Text("相机准备中…", Modifier.padding(top = 16.dp), color = Color.White)
+        }
       }
-      Text("自动保存\n系统相册", style = MaterialTheme.typography.bodySmall)
+      cameraError?.takeIf { cameraGranted }?.let { error ->
+        CameraMessage(Modifier.padding(24.dp)) {
+          Text(error, color = Color.White, textAlign = TextAlign.Center)
+          Button(onClick = { cameraError = null; retry++ }) { Text("重试相机") }
+        }
+      }
+      if (!cameraGranted) {
+        CameraMessage(Modifier.padding(24.dp)) {
+          Icon(Icons.Outlined.CameraAlt, contentDescription = null, tint = WarmOrange, modifier = Modifier.size(48.dp))
+          Text("开启相机，记录每一天", style = MaterialTheme.typography.titleMedium, color = Color.White)
+          Text("拍好的水印照片会自动保存，\n在微信相册里就能找到。", color = Color.White.copy(alpha = 0.8f),
+            style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+          Button(onClick = onRequestCamera) { Text("开启相机权限") }
+          TextButton(onClick = onOpenPermissions) { Text("去系统设置", color = WarmOrange) }
+        }
+      }
     }
-    Text(
-      if (state.saving) "正在烧录水印并保存…" else "照片保存在 Pictures/WatermarkCam",
-      Modifier.padding(bottom = 12.dp), style = MaterialTheme.typography.bodySmall,
-    )
+
+    Row(
+      Modifier.align(Alignment.TopCenter).fillMaxWidth()
+        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)))
+        .windowInsetsPadding(WindowInsets.statusBars).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 36.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      IconButton(
+        onClick = onLocation, enabled = !state.locating,
+        modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape)
+          .semantics {
+            contentDescription = if (locationGranted) "刷新定位和天气" else "开启定位"
+            if (state.locating) stateDescription = "正在刷新定位和天气"
+          },
+      ) {
+        if (state.locating) CircularProgressIndicator(Modifier.size(22.dp), color = WarmOrange, strokeWidth = 2.dp)
+        else Icon(Icons.Outlined.MyLocation, contentDescription = null, tint = Color.White)
+      }
+      Text("水印相机", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.9f))
+      IconButton(
+        onClick = onSettings, enabled = !state.saving,
+        modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = 0.12f), CircleShape),
+      ) {
+        Icon(Icons.Outlined.Settings, contentDescription = "打开设置", tint = Color.White)
+      }
+    }
+
+    Column(
+      Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+        .onSizeChanged { controlsHeight = it.height }
+        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f), Color.Black.copy(alpha = 0.92f))))
+        .windowInsetsPadding(WindowInsets.navigationBars).padding(top = 24.dp, bottom = 20.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+      Text("照片", color = WarmOrange, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 16.dp))
+      Row(
+        Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+          GalleryThumbnail(state.lastSaved, enabled = !state.saving, onClick = onViewPhoto)
+        }
+        ShutterButton(
+          enabled = cameraGranted && capture != null && frame != null && !state.saving,
+          saving = state.saving,
+          onClick = { capture?.let { camera -> frame?.let { onCapture(camera, it) } } },
+        )
+        Spacer(Modifier.size(80.dp))
+      }
+      Text(
+        if (state.saving) "正在保存照片…" else "拍照后自动保存到相册",
+        Modifier.padding(top = 12.dp), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+      )
+    }
   }
 }
 
 @Composable
-private fun WatermarkOverlay(lines: List<String>, modifier: Modifier = Modifier) {
-  if (lines.isEmpty()) return
-  BoxWithConstraints(modifier.fillMaxWidth()) {
-    val scale = maxWidth.value / WatermarkStyle.BASE_WIDTH
-    val fontScale = LocalDensity.current.fontScale
-    Text(
-      text = lines.joinToString("\n"),
-      color = Color.White,
-      fontSize = (WatermarkStyle.FONT_SIZE * scale / fontScale).sp,
-      lineHeight = (WatermarkStyle.LINE_HEIGHT * scale / fontScale).sp,
-      fontFamily = FontFamily.SansSerif,
-      letterSpacing = 0.sp,
-      style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-      maxLines = WatermarkStyle.MAX_LINES,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.fillMaxWidth()
-        .padding((WatermarkStyle.MARGIN * scale).dp)
-        .clip(RoundedCornerShape((WatermarkStyle.CORNER_RADIUS * scale).dp))
-        .background(Color.Black.copy(alpha = 0.65f))
-        .padding((WatermarkStyle.PADDING * scale).dp),
-    )
+private fun ShutterButton(enabled: Boolean, saving: Boolean, onClick: () -> Unit) {
+  val interactions = remember { MutableInteractionSource() }
+  val pressed by interactions.collectIsPressedAsState()
+  val scale by animateFloatAsState(if (pressed) 0.92f else 1f, label = "快门按压")
+  val alpha by animateFloatAsState(if (enabled || saving) 1f else 0.4f, label = "快门可用状态")
+  Box(
+    Modifier.size(80.dp).scale(scale).alpha(alpha).clip(CircleShape)
+      .clickable(enabled = enabled, role = Role.Button, interactionSource = interactions, indication = null, onClick = onClick)
+      .semantics { contentDescription = "拍照"; if (saving) stateDescription = "正在保存照片" }
+      .padding(2.dp).border(3.dp, Color.White, CircleShape).padding(7.dp)
+      .background(if (pressed) Color(0xFFDDDDDD) else Color.White, CircleShape),
+    contentAlignment = Alignment.Center,
+  ) {
+    if (saving) CircularProgressIndicator(Modifier.size(28.dp), color = WarmOrange, strokeWidth = 3.dp)
+  }
+}
+
+@Composable
+private fun CameraMessage(modifier: Modifier, content: @Composable () -> Unit) {
+  Surface(modifier, shape = RoundedCornerShape(28.dp), color = Color(0xEE24201C)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+      horizontalAlignment = Alignment.CenterHorizontally) { content() }
   }
 }

@@ -10,6 +10,7 @@ import com.nu11b1ade.watermarkcam.data.SettingsStore
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.PreparedWatermark
+import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
 import com.nu11b1ade.watermarkcam.location.FixedLocationSource
 import com.nu11b1ade.watermarkcam.location.PlatformLocationSource
@@ -126,10 +127,10 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     }
   }
 
-  fun prepareCapture(camera: ImageCapture): CaptureRequest {
+  fun prepareCapture(camera: ImageCapture, frame: PhotoFrame): CaptureRequest {
     val current = state.value
     val frozen = composeWatermark(current.config, current.observed.copy(capturedAt = ZonedDateTime.now()))
-    return CaptureRequest(camera, frozen)
+    return CaptureRequest(camera, frozen.copy(frame = frame))
   }
 
   fun capture(request: CaptureRequest) {
@@ -138,7 +139,7 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     viewModelScope.launch {
       try {
         val uri = photoSaver.captureAndSave(request.camera, request.watermark)
-        mutableState.update { it.copy(lastSaved = uri, notice = Notice("已保存到相册 · Pictures/WatermarkCam")) }
+        mutableState.update { it.copy(lastSaved = uri, notice = Notice("已保存到相册")) }
       } catch (cancelled: CancellationException) {
         throw cancelled
       } catch (_: ImageCaptureException) {

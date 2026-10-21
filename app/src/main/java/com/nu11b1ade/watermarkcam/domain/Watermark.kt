@@ -37,7 +37,12 @@ data class WatermarkContent(
   val weather: WeatherReading? = null,
 )
 
-data class PreparedWatermark(val content: WatermarkContent, val lines: List<String>)
+data class PreparedWatermark(
+  val content: WatermarkContent,
+  val lines: List<String>,
+  val card: WatermarkCard,
+  val frame: PhotoFrame = PhotoFrame(),
+)
 
 val WATERMARK_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss", Locale.ROOT)
 
@@ -62,5 +67,5 @@ fun composeWatermark(config: WatermarkConfig, observed: WatermarkContent): Prepa
     } ?: "天气--")
     if (config.showCustomText && config.customText.isNotBlank()) add(cleanWatermarkText(config.customText))
   }
-  return PreparedWatermark(effective, lines)
+  return PreparedWatermark(effective, lines, formatWatermarkCard(config, effective))
 }

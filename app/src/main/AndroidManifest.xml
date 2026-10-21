@@ -9,7 +9,7 @@
   <application
     android:label="水印相机"
     android:icon="@android:drawable/ic_menu_camera"
-    android:theme="@android:style/Theme.Material.Light.NoActionBar"
+    android:theme="@style/Theme.WatermarkCam"
     android:usesCleartextTraffic="false">
     <activity
       android:name=".MainActivity"

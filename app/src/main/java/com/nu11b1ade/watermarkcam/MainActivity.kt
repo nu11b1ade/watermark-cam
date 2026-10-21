@@ -8,21 +8,25 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Window
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,10 +34,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.withResumed
@@ -44,22 +50,24 @@ import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
 import com.nu11b1ade.watermarkcam.ui.WatermarkViewModel
+import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    if (Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
     setContent {
-      MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFAFDFBF))) {
-        WatermarkApp()
+      WatermarkCamTheme {
+        WatermarkApp(window)
       }
     }
   }
 }
 
 @Composable
-private fun WatermarkApp(model: WatermarkViewModel = viewModel()) {
+private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()) {
   val context = LocalContext.current
   val owner = LocalLifecycleOwner.current
   val state by model.state.collectAsStateWithLifecycle()
@@ -70,6 +78,13 @@ private fun WatermarkApp(model: WatermarkViewModel = viewModel()) {
   var pendingCapture by remember { mutableStateOf<CaptureRequest?>(null) }
   val snackbar = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
+  val darkTheme = isSystemInDarkTheme()
+
+  SideEffect {
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    controller.isAppearanceLightStatusBars = settingsOpen && !darkTheme
+    controller.isAppearanceLightNavigationBars = settingsOpen && !darkTheme
+  }
 
   val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
     cameraGranted = it
@@ -116,13 +131,12 @@ private fun WatermarkApp(model: WatermarkViewModel = viewModel()) {
     }
   }
 
-  Scaffold(modifier = Modifier.fillMaxSize(), snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+  Box(Modifier.fillMaxSize()) {
     if (settingsOpen) {
       SettingsScreen(
         config = state.config,
         onSave = { model.updateConfig(it); settingsOpen = false },
         onBack = { settingsOpen = false },
-        modifier = Modifier.padding(padding),
       )
     } else {
       CameraScreen(
@@ -136,8 +150,8 @@ private fun WatermarkApp(model: WatermarkViewModel = viewModel()) {
           else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         },
         onSettings = { settingsOpen = true },
-        onCapture = { capture ->
-          val request = model.prepareCapture(capture)
+        onCapture = { capture, frame ->
+          val request = model.prepareCapture(capture, frame)
           if (Build.VERSION.SDK_INT >= 29 || context.hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
             model.capture(request)
           } else {
@@ -155,9 +169,13 @@ private fun WatermarkApp(model: WatermarkViewModel = viewModel()) {
             }
           }
         },
-        modifier = Modifier.padding(padding),
       )
     }
+    SnackbarHost(
+      snackbar,
+      Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars)
+        .padding(bottom = if (settingsOpen) 96.dp else 164.dp),
+    )
   }
 }
 

@@ -15,16 +15,20 @@ import java.io.IOException
 class WatermarkedJpegWriter {
   fun write(source: File, destination: File, watermark: PreparedWatermark) {
     val upright = readUprightBitmap(source)
+    var framed: Bitmap? = null
     var burned: Bitmap? = null
     try {
-      burned = BitmapWatermarkBurner().burn(upright, watermark.lines)
+      val height = watermark.frame.cropHeight(upright.height)
+      framed = if (height == upright.height) upright else Bitmap.createBitmap(upright, 0, 0, upright.width, height)
+      burned = BitmapWatermarkBurner().burn(framed, watermark.card)
       destination.outputStream().use {
         if (!burned.compress(Bitmap.CompressFormat.JPEG, 94, it)) throw IOException("无法编码 JPEG")
       }
       // Fresh pixels cannot retain camera GPS/time hidden behind manual overrides.
       writeExif(destination, watermark.content)
     } finally {
-      if (burned !== upright) burned?.recycle()
+      if (burned !== upright && burned !== framed) burned?.recycle()
+      if (framed !== upright) framed?.recycle()
       upright.recycle()
     }
   }

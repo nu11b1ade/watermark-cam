@@ -11,8 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONException
-import org.json.JSONObject
 
 interface WeatherSource {
   suspend fun current(coordinates: Coordinates): WeatherReading?
@@ -45,36 +43,15 @@ class OpenMeteoWeatherSource(
         connection.readTimeout = 5_000
         connection.setRequestProperty("User-Agent", "WatermarkCam/0.1 (Android)")
         if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext fallback.current(coordinates)
-        val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() }).getJSONObject("current")
-        val temperature = json.optDouble("temperature_2m", Double.NaN)
-        if (!temperature.isFinite()) return@withContext fallback.current(coordinates)
-        val reading = WeatherReading(coordinates, temperature, briefCondition(json.optInt("weather_code", -1)))
+        val reading = parseOpenMeteoWeather(connection.inputStream.bufferedReader().use { it.readText() }, coordinates)
+          ?: return@withContext fallback.current(coordinates)
         cache = Cache(SystemClock.elapsedRealtime(), reading)
         reading
       } catch (_: IOException) {
-        fallback.current(coordinates)
-      } catch (_: JSONException) {
         fallback.current(coordinates)
       } finally {
         connection.disconnect()
       }
     }
-  }
-
-  private fun briefCondition(code: Int): String = when (code) {
-    0 -> "晴"
-    1 -> "大致晴"
-    2 -> "多云"
-    3 -> "阴"
-    45, 48 -> "雾"
-    51, 53, 55 -> "毛毛雨"
-    56, 57 -> "冻毛毛雨"
-    61, 63, 65 -> "雨"
-    66, 67 -> "冻雨"
-    71, 73, 75, 77 -> "雪"
-    80, 81, 82 -> "阵雨"
-    85, 86 -> "阵雪"
-    95, 96, 99 -> "雷雨"
-    else -> "未知"
   }
 }

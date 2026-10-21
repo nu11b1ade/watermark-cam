@@ -12,7 +12,7 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.PreparedWatermark
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
 import com.nu11b1ade.watermarkcam.location.FixedLocationSource
-import com.nu11b1ade.watermarkcam.location.FusedLocationSource
+import com.nu11b1ade.watermarkcam.location.PlatformLocationSource
 import com.nu11b1ade.watermarkcam.save.PhotoSaver
 import com.nu11b1ade.watermarkcam.weather.OpenMeteoWeatherSource
 import java.io.IOException
@@ -41,7 +41,7 @@ data class CameraUiState(
 
 class WatermarkViewModel(application: Application) : AndroidViewModel(application) {
   private val settings = SettingsStore(application)
-  private val locationSource = FusedLocationSource(application)
+  private val locationSource = PlatformLocationSource(application)
   private val weatherSource = OpenMeteoWeatherSource()
   private val photoSaver = PhotoSaver(application)
   private val mutableState = MutableStateFlow(CameraUiState(

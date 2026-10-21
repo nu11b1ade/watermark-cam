@@ -30,17 +30,22 @@ class PhotoSaver(private val context: Context) {
     val raw = File.createTempFile("capture_", ".jpg", context.cacheDir)
     try {
       withContext(Dispatchers.Main.immediate) { capture(camera, raw) }
-      val jpeg = File.createTempFile("watermark_", ".jpg", context.cacheDir)
-      try {
-        ensureActive()
-        WatermarkedJpegWriter().write(raw, jpeg, watermark)
-        ensureActive()
-        saveToMediaStore(jpeg, watermark.content)
-      } finally {
-        jpeg.delete()
-      }
+      saveCaptured(raw, watermark)
     } finally {
       raw.delete()
+    }
+  }
+
+  /** Burn and publish an already captured JPEG. The caller retains ownership of [raw]. */
+  suspend fun saveCaptured(raw: File, watermark: PreparedWatermark): Uri = withContext(Dispatchers.IO) {
+    val jpeg = File.createTempFile("watermark_", ".jpg", context.cacheDir)
+    try {
+      ensureActive()
+      WatermarkedJpegWriter().write(raw, jpeg, watermark)
+      ensureActive()
+      saveToMediaStore(jpeg, watermark.content)
+    } finally {
+      jpeg.delete()
     }
   }
 

@@ -21,7 +21,8 @@
   </queries>
   <application
     android:label="水印相机"
-    android:icon="@android:drawable/ic_menu_camera"
+    android:icon="@mipmap/ic_launcher"
+    android:roundIcon="@mipmap/ic_launcher"
     android:theme="@style/Theme.WatermarkCam"
     android:usesCleartextTraffic="false">
     <meta-data android:name="com.amap.api.v2.apikey" android:value="${amapKey}" />

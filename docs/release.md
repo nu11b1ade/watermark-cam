@@ -98,3 +98,8 @@ Robolectric 截图测试生成 `.scratch/screenshots/v5-update.png` 与 `.scratc
 - 首次启动显示中文说明；同意后才使用高德输入提示、POI/地理编码与逆地理编码，可在设置页重新选择。未配置密钥、未同意、超时或服务失败时使用原有系统 Geocoder → Nominatim 链，仍可手动填写地点和坐标。
 - 高德边界使用 GCJ-02；应用内有效值、照片水印、EXIF 与 Open-Meteo 天气坐标始终使用 WGS-84。发布构建保留搜索 SDK 的必要 R8 规则，不需要地图 SDK。
 - `ScreenshotTest` 生成 `.scratch/screenshots/v7-amap-candidates.png` 与 `.scratch/screenshots/v7-amap-privacy-dialog.png`；候选无坐标时可点选补全，拒绝隐私说明仍可正常使用相机与备用地址查询。
+
+## 启动图标
+
+- Android 8+ 使用实心橙色背景与白色相机矢量前景；Android 13+ 另提供带镜头镂空的单色主题图标。
+- `python3 scripts/generate-launcher-icons.py`（依赖 CairoSVG、Pillow）从同一前景生成五档 legacy mipmaps 和 `.scratch/screenshots/icon-preview.png`，并验证每个像素完全不透明。

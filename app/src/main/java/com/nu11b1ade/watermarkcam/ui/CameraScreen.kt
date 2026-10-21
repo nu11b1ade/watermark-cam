@@ -73,6 +73,8 @@ fun CameraScreen(
   onCapture: (ImageCapture, PhotoFrame) -> Unit,
   onViewPhoto: () -> Unit,
   modifier: Modifier = Modifier,
+  /** Replaces the CameraX preview (JVM screenshot tests only); the screen then behaves as if the camera is ready. */
+  previewPlaceholder: (@Composable () -> Unit)? = null,
 ) {
   var capture by remember { mutableStateOf<ImageCapture?>(null) }
   var cameraError by remember { mutableStateOf<String?>(null) }
@@ -85,7 +87,7 @@ fun CameraScreen(
 
   Box(modifier.fillMaxSize().background(Color.Black).onSizeChanged { previewHeight = it.height }) {
     if (cameraGranted) {
-      CameraPreview(
+      if (previewPlaceholder != null) previewPlaceholder() else CameraPreview(
         retry = retry,
         onReady = { capture = it; if (it != null) cameraError = null },
         onError = { cameraError = it; capture = null },
@@ -99,7 +101,7 @@ fun CameraScreen(
       Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 64.dp, bottom = bottomSpace),
       contentAlignment = Alignment.Center,
     ) {
-      if (cameraGranted && capture == null && cameraError == null) {
+      if (cameraGranted && previewPlaceholder == null && capture == null && cameraError == null) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
           CircularProgressIndicator(Modifier.size(32.dp), color = WarmOrange)
           Text("相机准备中…", Modifier.padding(top = 16.dp), color = Color.White)
@@ -166,7 +168,7 @@ fun CameraScreen(
           GalleryThumbnail(state.lastSaved, enabled = !state.saving, onClick = onViewPhoto)
         }
         ShutterButton(
-          enabled = cameraGranted && capture != null && frame != null && !state.saving,
+          enabled = cameraGranted && (capture != null || previewPlaceholder != null) && frame != null && !state.saving,
           saving = state.saving,
           onClick = { capture?.let { camera -> frame?.let { onCapture(camera, it) } } },
         )

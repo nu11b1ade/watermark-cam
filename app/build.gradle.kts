@@ -1,7 +1,34 @@
+import java.util.Properties
+
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing: read from ~/keys/watermark-cam-keystore.properties (keys: storeFile,
+// storePassword, keyAlias, keyPassword) or env vars WMCAM_KEYSTORE, WMCAM_STORE_PASSWORD,
+// WMCAM_KEY_ALIAS, WMCAM_KEY_PASSWORD. Key material never lives in this repo.
+// If neither is available the release build is left unsigned; debug builds are unaffected.
+val releaseSigning: Map<String, String>? = run {
+  val env = System.getenv()
+  val fromEnv = listOf("WMCAM_KEYSTORE", "WMCAM_STORE_PASSWORD", "WMCAM_KEY_ALIAS", "WMCAM_KEY_PASSWORD")
+    .associateWith { env[it].orEmpty() }
+  if (fromEnv.values.all { it.isNotBlank() }) {
+    mapOf(
+      "storeFile" to fromEnv.getValue("WMCAM_KEYSTORE"),
+      "storePassword" to fromEnv.getValue("WMCAM_STORE_PASSWORD"),
+      "keyAlias" to fromEnv.getValue("WMCAM_KEY_ALIAS"),
+      "keyPassword" to fromEnv.getValue("WMCAM_KEY_PASSWORD"),
+    )
+  } else {
+    val f = File(System.getProperty("user.home"), "keys/watermark-cam-keystore.properties")
+    if (!f.isFile) null else {
+      val props = Properties().apply { f.inputStream().use { load(it) } }
+      val keys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+      if (keys.all { !props.getProperty(it).isNullOrBlank() }) keys.associateWith { props.getProperty(it) } else null
+    }
+  }
+}?.takeIf { File(it.getValue("storeFile")).isFile }
 android {
   namespace = "com.nu11b1ade.watermarkcam"
   compileSdk = 37
@@ -12,6 +39,24 @@ android {
     versionCode = 1
     versionName = "0.1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
+  signingConfigs {
+    if (releaseSigning != null) {
+      create("release") {
+        storeFile = File(releaseSigning.getValue("storeFile"))
+        storePassword = releaseSigning.getValue("storePassword")
+        keyAlias = releaseSigning.getValue("keyAlias")
+        keyPassword = releaseSigning.getValue("keyPassword")
+      }
+    }
+  }
+  buildTypes {
+    release {
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      if (releaseSigning != null) signingConfig = signingConfigs.getByName("release")
+    }
   }
   buildFeatures { compose = true }
   testOptions { unitTests.isIncludeAndroidResources = true }

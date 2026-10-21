@@ -11,3 +11,9 @@ captures/
 *.ap_
 *.dex
 .scratch/**/tmp/
+# Signing key material must never be committed
+*.jks
+*.keystore
+keystore.properties
+*keystore.properties
+local.properties

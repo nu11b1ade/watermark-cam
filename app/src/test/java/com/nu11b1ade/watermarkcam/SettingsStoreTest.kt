@@ -7,6 +7,7 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +23,15 @@ class SettingsStoreTest {
 
   @Before fun clearSettings() {
     preferences.edit { clear() }
+  }
+
+  @Test fun `AMap consent is undecided on install and persists both acceptance and refusal independently`() {
+    assertNull(SettingsStore(context).loadAMapConsent())
+    SettingsStore(context).saveAMapConsent(true)
+    SettingsStore(context).save(WatermarkConfig(customText = "手动水印"))
+    assertEquals(true, SettingsStore(context).loadAMapConsent())
+    SettingsStore(context).saveAMapConsent(false)
+    assertEquals(false, SettingsStore(context).loadAMapConsent())
   }
 
   @Test fun `new installation defaults to medium without custom text`() {

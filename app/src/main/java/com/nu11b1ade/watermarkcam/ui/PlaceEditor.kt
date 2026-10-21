@@ -80,8 +80,11 @@ internal fun PlaceEditor(
     decision.coordinatesToFill?.let(::fillCoordinates)
     coordsManuallyEdited = decision.manuallyEdited
   }
-  fun isCurrentLookup(request: PlaceLookupRequest): Boolean = enabled && lookupRequest == request &&
-    (request !is PlaceLookupRequest.Search || request.query == currentPlace)
+  fun isCurrentLookup(request: PlaceLookupRequest): Boolean = enabled && lookupRequest == request && when (request) {
+    is PlaceLookupRequest.Search -> request.query == currentPlace
+    is PlaceLookupRequest.Resolve -> request.candidate.name == currentPlace
+    is PlaceLookupRequest.CurrentLocation -> true
+  }
 
   LaunchedEffect(place, enabled, lookupRequest) {
     if (!enabled) {
@@ -130,6 +133,21 @@ internal fun PlaceEditor(
         if (!isCurrentLookup(request)) return@LaunchedEffect
         lookup = outcome
       }
+      is PlaceLookupRequest.Resolve -> {
+        lookup = PlaceLookupUiState(message = "正在获取经纬度…")
+        val resolved = try {
+          forwardGeocoder.resolve(request.candidate)
+        } catch (cancelled: CancellationException) {
+          throw cancelled
+        } catch (_: Exception) {
+          null
+        }
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentLookup(request)) return@LaunchedEffect
+        // A coordinate edit made while resolving must win over the delayed result.
+        applyCandidates(PlaceLookupTrigger.DEBOUNCE, listOfNotNull(resolved))
+        lookup = PlaceLookupUiState(message = if (resolved?.coordinates == null) "未获取到坐标，可以手动填经纬度" else null)
+      }
     }
     if (lookupRequest == request) lookupRequest = null
   }
@@ -163,11 +181,16 @@ internal fun PlaceEditor(
     }
     lookup.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     if (lookup.candidates.isNotEmpty()) {
+      Text("候选地点 · 点击选择", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
       PlaceCandidates(lookup.candidates) { candidate ->
-        lookupRequest = null
         applyCandidates(PlaceLookupTrigger.PICK, listOf(candidate))
         changePlace(candidate.name)
         lookup = PlaceLookupUiState()
+        lookupRequest = if (candidate.coordinates != null) null else {
+          onLatitudeChange("")
+          onLongitudeChange("")
+          PlaceLookupRequest.Resolve(candidate, ++lookupSequence)
+        }
       }
     }
     CoordinateField("纬度", "范围 -90 ～ 90", latitude, { onLatitudeChange(it); coordsManuallyEdited = true }, coordinatesError, ImeAction.Next)
@@ -179,6 +202,7 @@ internal fun PlaceEditor(
 
 private sealed interface PlaceLookupRequest {
   data class Search(val query: String, val trigger: PlaceLookupTrigger, val sequence: Int) : PlaceLookupRequest
+  data class Resolve(val candidate: PlaceCandidate, val sequence: Int) : PlaceLookupRequest
   data class CurrentLocation(val sequence: Int) : PlaceLookupRequest
 }
 
@@ -195,7 +219,9 @@ private fun PlaceCandidates(candidates: List<PlaceCandidate>, onPick: (PlaceCand
       Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { onPick(candidate) }).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(candidate.name, style = MaterialTheme.typography.bodyMedium)
-        Text("纬度 ${formatCoordinate(candidate.coordinates.latitude)}, 经度 ${formatCoordinate(candidate.coordinates.longitude)}",
+        if (candidate.fullName != candidate.name) Text(candidate.fullName,
+          style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(candidate.coordinates?.let { "纬度 ${formatCoordinate(it.latitude)}, 经度 ${formatCoordinate(it.longitude)}" } ?: "点击获取经纬度",
           style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
     }

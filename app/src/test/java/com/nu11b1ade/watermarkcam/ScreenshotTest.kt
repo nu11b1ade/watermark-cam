@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -19,11 +20,12 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
@@ -40,6 +42,7 @@ import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import com.nu11b1ade.watermarkcam.location.LocationPermissionState
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
+import com.nu11b1ade.watermarkcam.ui.AMapPrivacyDialog
 import com.nu11b1ade.watermarkcam.ui.CameraUiState
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
 import com.nu11b1ade.watermarkcam.ui.OverrideDatePicker
@@ -194,6 +197,40 @@ class ScreenshotTest {
     )
   }
 
+  @Test fun amapPlaceCandidates() = shoot("v7-amap-candidates.png", beforeCapture = {
+    compose.onNodeWithText("地点 / 地址").performScrollTo().performTextReplacement("朝阳公园")
+    compose.mainClock.advanceTimeBy(900)
+    compose.onNodeWithText("北京市朝阳区农展南路1号").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithText("候选地点 · 点击选择").assertIsDisplayed()
+    compose.onNodeWithText("朝阳公园南门").assertIsDisplayed()
+    compose.onNodeWithText("朝阳公园西门").assertIsDisplayed()
+  }) {
+    SettingsScreen(
+      config.copy(overrides = OverrideState(place = PlaceOverride("北京"))), onSave = {}, onBack = {}, amapConsent = true,
+      forwardGeocoder = ForwardGeocoder {
+        listOf(
+          PlaceCandidate("北京朝阳公园", "北京市朝阳区朝阳公园南路1号", Coordinates(39.9337, 116.4731)),
+          PlaceCandidate("朝阳公园南门", "北京市朝阳区朝阳公园南路", null, "south-gate"),
+          PlaceCandidate("朝阳公园西门", "北京市朝阳区农展南路1号", Coordinates(39.9376, 116.4702)),
+        )
+      },
+    )
+  }
+
+  @Test fun amapPrivacyDialog() = shoot("v7-amap-privacy-dialog.png", captureDialog = true, beforeCapture = {
+    compose.onNodeWithText("高德地点服务隐私说明").assertIsDisplayed()
+    compose.onNodeWithText("阅读高德隐私政策").assertIsDisplayed()
+    compose.onNodeWithText("暂不使用高德").assertIsDisplayed().assertIsEnabled()
+    compose.onNodeWithText("同意并启用").assertIsDisplayed().assertIsEnabled()
+  }) {
+    CameraScreen(
+      state = CameraUiState(config = config, observed = observed), cameraGranted = false,
+      locationPermission = LocationPermissionState.CanAsk, onRequestCamera = {}, onOpenPermissions = {},
+      onLocation = {}, onSettings = {}, onCapture = { _, _ -> }, onViewPhoto = {},
+    )
+    AMapPrivacyDialog(onChoice = {}, onOpenPolicy = {})
+  }
+
   @Test fun settingsUpdateSection() = shoot("v5-update.png", beforeCapture = {
     compose.onNodeWithText("发现新版本 v0.2.0").performScrollTo().assertIsDisplayed()
     compose.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME}").assertIsDisplayed()
@@ -236,12 +273,14 @@ class ScreenshotTest {
       latitude = "31.2397", longitude = "121.4998", weatherText = "多云 23°C",
       config = config.copy(showCustomText = true, customText = "今日打卡 · 平安喜乐", watermarkSize = WatermarkSize.LARGE))
     shoot("v4-edit.png", beforeCapture = {
-      // Decoding runs on Dispatchers.IO; when the whole class runs, the result posted back to the
-      // paused Robolectric main looper was not always drained by waitUntil. Pump it explicitly.
+      // Flush snapshot notifications and advance scheduled main-looper frames: after other
+      // screenshots, an IO result may be delivered while the UI still shows the loading state.
       val deadline = System.currentTimeMillis() + 15_000
       while (compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("照片预览")).fetchSemanticsNodes().isEmpty()) {
+        compose.onNodeWithText("无法读取原图，请返回重试").assertDoesNotExist()
         check(System.currentTimeMillis() < deadline) { "照片预览 never appeared" }
-        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        Snapshot.sendApplyNotifications()
         compose.mainClock.advanceTimeByFrame()
         Thread.sleep(50)
       }

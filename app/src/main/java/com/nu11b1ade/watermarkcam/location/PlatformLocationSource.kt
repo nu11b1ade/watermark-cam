@@ -21,7 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class PlatformLocationSource(
   private val context: Context,
-  private val reverseGeocoder: ReverseGeocoder = FallbackReverseGeocoder(AndroidReverseGeocoder(context), NominatimReverseGeocoder()),
+  private val reverseGeocoder: ReverseGeocoder = Geocoders(context).reverse,
   private val fallback: LocationSource = FixedLocationSource(),
 ) : LocationSource {
   @SuppressLint("MissingPermission")

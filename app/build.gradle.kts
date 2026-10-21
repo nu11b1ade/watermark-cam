@@ -5,6 +5,14 @@ plugins {
   id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Inject only into the manifest. Never put the value in BuildConfig or build output.
+val amapKey = providers.environmentVariable("WMCAM_AMAP_KEY").orNull?.trim()?.takeIf { it.isNotEmpty() } ?: run {
+  val file = File(System.getProperty("user.home"), "keys/watermark-cam-amap.properties")
+  if (!file.isFile) "" else runCatching {
+    Properties().apply { file.inputStream().use { load(it) } }.getProperty("amapKey", "").trim()
+  }.getOrDefault("")
+}
+
 // Release signing: read from ~/keys/watermark-cam-keystore.properties (keys: storeFile,
 // storePassword, keyAlias, keyPassword) or env vars WMCAM_KEYSTORE, WMCAM_STORE_PASSWORD,
 // WMCAM_KEY_ALIAS, WMCAM_KEY_PASSWORD. Key material never lives in this repo.
@@ -39,6 +47,8 @@ android {
     versionCode = 2
     versionName = "0.2.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    manifestPlaceholders["amapKey"] = amapKey
+    buildConfigField("boolean", "AMAP_ENABLED", amapKey.isNotBlank().toString())
   }
   signingConfigs {
     if (releaseSigning != null) {
@@ -92,6 +102,7 @@ dependencies {
   implementation("androidx.core:core-ktx:1.17.0")
   implementation("androidx.exifinterface:exifinterface:1.4.1")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+  implementation("com.amap.api:search:9.7.1")
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
   testImplementation("org.robolectric:robolectric:4.16.1")

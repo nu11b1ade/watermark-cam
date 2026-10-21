@@ -88,3 +88,13 @@ dist/latest.json
 ```
 
 Robolectric 截图测试生成 `.scratch/screenshots/v5-update.png` 与 `.scratch/screenshots/v5-update-dialog.png`，无需模拟器。
+
+## 高德地点搜索与地址服务
+
+- 搜索 SDK 固定为 Maven Central 的 `com.amap.api:search:9.7.1`，不依赖 GMS。
+- 构建时优先读取环境变量 `WMCAM_AMAP_KEY`；否则读取 `~/keys/watermark-cam-amap.properties` 的 `amapKey` 属性；均未提供时使用空值，仍可正常构建。
+- 在高德控制台为 Android 应用配置本项目包名及实际发布证书的 SHA-1，并开通所需搜索服务。密钥由发布者在仓库外配置，不写入文档、日志、命令行参数或版本控制；`*amap.properties` 已忽略。
+- 密钥仅通过 manifest placeholder 注入 `com.amap.api.v2.apikey`；`BuildConfig.AMAP_ENABLED` 只表示是否配置，不包含密钥。不要打印合并后的 manifest、构建参数或密钥文件。
+- 首次启动显示中文说明；同意后才使用高德输入提示、POI/地理编码与逆地理编码，可在设置页重新选择。未配置密钥、未同意、超时或服务失败时使用原有系统 Geocoder → Nominatim 链，仍可手动填写地点和坐标。
+- 高德边界使用 GCJ-02；应用内有效值、照片水印、EXIF 与 Open-Meteo 天气坐标始终使用 WGS-84。发布构建保留搜索 SDK 的必要 R8 规则，不需要地图 SDK。
+- `ScreenshotTest` 生成 `.scratch/screenshots/v7-amap-candidates.png` 与 `.scratch/screenshots/v7-amap-privacy-dialog.png`；候选无坐标时可点选补全，拒绝隐私说明仍可正常使用相机与备用地址查询。

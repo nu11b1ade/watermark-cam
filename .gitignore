@@ -18,3 +18,4 @@ captures/
 keystore.properties
 *keystore.properties
 local.properties
+*amap.properties

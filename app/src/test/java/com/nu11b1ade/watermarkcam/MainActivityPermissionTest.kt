@@ -10,7 +10,9 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
+import com.nu11b1ade.watermarkcam.data.SettingsStore
 import com.nu11b1ade.watermarkcam.ui.WatermarkViewModel
 import com.nu11b1ade.watermarkcam.update.CheckThrottle
 import org.junit.Assert.assertArrayEquals
@@ -43,11 +45,58 @@ class MainActivityPermissionTest {
       Manifest.permission.ACCESS_COARSE_LOCATION,
     )
     application.getSharedPreferences("permissions", Context.MODE_PRIVATE).edit().clear().commit()
+    SettingsStore(application).saveAMapConsent(false)
     val location = shadowOf(application.getSystemService(LocationManager::class.java))
     location.setProviderEnabled(LocationManager.GPS_PROVIDER, false)
     location.setProviderEnabled(LocationManager.NETWORK_PROVIDER, false)
     // Permission tests must not depend on the update server or start a network request.
     CheckThrottle(application.getSharedPreferences("updates", Context.MODE_PRIVATE)).recordAttempt()
+  }
+
+  @Test fun `first launch asks privacy before permissions and acceptance persists across recreation`() {
+    application.getSharedPreferences("watermark", Context.MODE_PRIVATE).edit().remove("amapConsent").commit()
+
+    withActivity { controller ->
+      compose.onNodeWithText("高德地点服务隐私说明").assertIsDisplayed()
+      assertNull(shadowOf(controller.get()).lastRequestedPermission)
+      compose.onNodeWithText("同意并启用").performClick()
+      idleFrames()
+
+      assertEquals(true, SettingsStore(application).loadAMapConsent())
+      assertArrayEquals(
+        arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+        shadowOf(controller.get()).lastRequestedPermission?.requestedPermissions,
+      )
+      controller.recreate()
+      idleFrames()
+      compose.onNodeWithText("高德地点服务隐私说明").assertDoesNotExist()
+    }
+  }
+
+  @Test fun `declining privacy keeps the camera available and settings can enable and revoke consent`() {
+    application.getSharedPreferences("watermark", Context.MODE_PRIVATE).edit().remove("amapConsent").commit()
+
+    withActivity { controller ->
+      compose.onNodeWithText("暂不使用高德").performClick()
+      idleFrames()
+      assertEquals(false, SettingsStore(application).loadAMapConsent())
+      compose.onNodeWithContentDescription("拍照").assertIsDisplayed()
+      denyRequest(controller.get())
+      controller.recreate()
+      idleFrames()
+      compose.onNodeWithText("高德地点服务隐私说明").assertDoesNotExist()
+
+      compose.onNodeWithContentDescription("打开设置").performClick()
+      compose.onNodeWithText("高德隐私设置").performScrollTo().performClick()
+      compose.onNodeWithText("阅读高德隐私政策").performScrollTo().performClick()
+      assertEquals("https://lbs.amap.com/pages/privacy/", shadowOf(controller.get()).nextStartedActivity.dataString)
+      compose.onNodeWithText("同意并启用").performClick()
+      assertEquals(true, SettingsStore(application).loadAMapConsent())
+
+      compose.onNodeWithText("高德隐私设置").performScrollTo().performClick()
+      compose.onNodeWithText("暂不使用高德").performClick()
+      assertEquals(false, SettingsStore(application).loadAMapConsent())
+    }
   }
 
   @Test fun `first launch requests camera and both location permissions together`() = withActivity { controller ->

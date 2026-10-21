@@ -51,12 +51,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nu11b1ade.watermarkcam.gallery.GalleryResolver
 import com.nu11b1ade.watermarkcam.gallery.galleryViewIntent
-import com.nu11b1ade.watermarkcam.location.AndroidForwardGeocoder
-import com.nu11b1ade.watermarkcam.location.FallbackForwardGeocoder
-import com.nu11b1ade.watermarkcam.location.NominatimForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.Geocoders
 import com.nu11b1ade.watermarkcam.location.LocationPermissionState
 import com.nu11b1ade.watermarkcam.location.locationPermissionState
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
+import com.nu11b1ade.watermarkcam.ui.AMAP_PRIVACY_URL
+import com.nu11b1ade.watermarkcam.ui.AMapPrivacyDialog
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
 import com.nu11b1ade.watermarkcam.ui.InstallPermissionDialog
@@ -124,9 +124,10 @@ private fun WatermarkApp(
   val snackbar = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val darkTheme = isSystemInDarkTheme()
-  val forwardGeocoder = remember(context) {
-    FallbackForwardGeocoder(AndroidForwardGeocoder(context.applicationContext), NominatimForwardGeocoder())
-  }
+  val geocoders = remember(context) { Geocoders(context) }
+  val forwardGeocoder = geocoders.forward
+  var amapConsent by remember { mutableStateOf(geocoders.amapConsent) }
+  var amapPrivacyOpen by rememberSaveable { mutableStateOf(amapConsent == null) }
 
   SideEffect {
     val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -155,7 +156,7 @@ private fun WatermarkApp(
     }
   }
   val autoRequestPermissions = {
-    if (!permissionsAutoRequested && !permissionRequestInFlight) {
+    if (amapConsent != null && !permissionsAutoRequested && !permissionRequestInFlight) {
       permissionsAutoRequested = true
       requestPermissions(buildList {
         add(Manifest.permission.CAMERA)
@@ -178,17 +179,17 @@ private fun WatermarkApp(
     else if (!granted) model.showNotice("Android 8–9 需要相册写入权限才能保存，请在系统设置中开启")
   }
 
-  LaunchedEffect(Unit) {
+  LaunchedEffect(amapConsent) {
     owner.lifecycle.withResumed { autoRequestPermissions() }
   }
-  DisposableEffect(owner, context, model) {
+  DisposableEffect(owner, context, model, amapConsent) {
     val observer = LifecycleEventObserver { _, event ->
       if (event == Lifecycle.Event.ON_RESUME) {
         cameraGranted = context.hasPermission(Manifest.permission.CAMERA)
         locationPermission = readLocationPermission()
         if (locationPermission.isGranted) permissionHistory.edit { putBoolean("locationDenied", false) }
         // enterForeground refreshes the environment, including a grant made in system settings.
-        model.enterForeground(locationPermission.isGranted)
+        if (amapConsent != null) model.enterForeground(locationPermission.isGranted)
         // Shares the launch guard: dialog returns and recreation must never start a second automatic request.
         autoRequestPermissions()
       } else if (event == Lifecycle.Event.ON_PAUSE) {
@@ -228,6 +229,8 @@ private fun WatermarkApp(
           if (updateState.check is UpdateCheckState.Available) updateModel.openUpdate()
           else updateModel.check(manual = true)
         },
+        amapConsent = amapConsent,
+        onAMapPrivacy = { amapPrivacyOpen = true },
       )
     } else if (screen == "history" || (editId != null && editRecord == null)) {
       LaunchedEffect(Unit) { if (editId != null) screen = "history" }
@@ -300,7 +303,24 @@ private fun WatermarkApp(
         .padding(bottom = if (settingsOpen) 96.dp else 164.dp),
     )
   }
-  if (updateState.showInstallPermission) {
+  if (amapPrivacyOpen) {
+    AMapPrivacyDialog(
+      onChoice = { agreed ->
+        geocoders.setAMapConsent(agreed)
+        amapConsent = agreed
+        amapPrivacyOpen = false
+        model.refreshEnvironment(locationPermission.isGranted)
+      },
+      onOpenPolicy = {
+        try {
+          context.startActivity(Intent(Intent.ACTION_VIEW, AMAP_PRIVACY_URL.toUri()))
+        } catch (_: ActivityNotFoundException) {
+          model.showNotice("请在浏览器中访问高德开放平台，查看隐私政策")
+        }
+      },
+      onDismiss = { if (amapConsent != null) amapPrivacyOpen = false },
+    )
+  } else if (updateState.showInstallPermission) {
     InstallPermissionDialog(
       onSettings = {
         try {

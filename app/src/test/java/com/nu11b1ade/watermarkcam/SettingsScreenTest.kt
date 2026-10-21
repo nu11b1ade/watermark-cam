@@ -79,6 +79,28 @@ class SettingsScreenTest {
     PlaceCandidate("上海市 浦东新区 东方明珠", "东方明珠, 浦东新区, 上海市, 中国", Coordinates(31.2396, 121.4997)),
   )
 
+  @Test fun `an address suggestion without a point resolves on tap and fills WGS84 coordinates`() {
+    val tip = PlaceCandidate("朝阳公园", "北京市朝阳区朝阳公园南路1号", null, "park-id")
+    val selected = mutableListOf<PlaceCandidate>()
+    showSettings(geocoder = object : ForwardGeocoder {
+      override suspend fun search(query: String) = listOf(tip)
+      override suspend fun resolve(candidate: PlaceCandidate): PlaceCandidate {
+        selected += candidate
+        return candidate.copy(coordinates = Coordinates(39.9337, 116.4731))
+      }
+    })
+    compose.onNodeWithText("地点 / 地址").performScrollTo().performTextReplacement("朝阳公园")
+    compose.mainClock.advanceTimeBy(900)
+    compose.onNodeWithText(tip.fullName).performScrollTo().assertIsDisplayed()
+
+    compose.onNodeWithText(tip.fullName).performClick()
+
+    compose.onNodeWithText("地点 / 地址").assertTextContains("朝阳公园")
+    compose.onNodeWithText("纬度（可自动填写）").performScrollTo().assertTextContains("39.9337")
+    compose.onNodeWithText("经度（可自动填写）").assertTextContains("116.4731")
+    compose.runOnIdle { assertEquals(listOf(tip), selected) }
+  }
+
   @Test fun `opening a saved place does not search and typing waits for debounce before filling coordinates`() {
     val queries = mutableListOf<String>()
     val config = WatermarkConfig(overrides = OverrideState(place = PlaceOverride("已保存地点", Coordinates(39.9, 116.4))))

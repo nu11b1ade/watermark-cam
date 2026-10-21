@@ -13,6 +13,14 @@ import com.nu11b1ade.watermarkcam.domain.parseOverrides
 class SettingsStore(context: Context) {
   private val preferences = context.getSharedPreferences("watermark", Context.MODE_PRIVATE)
 
+  /** null means the first-launch notice has not been answered. */
+  fun loadAMapConsent(): Boolean? =
+    if (preferences.contains("amapConsent")) preferences.getBoolean("amapConsent", false) else null
+
+  fun saveAMapConsent(agreed: Boolean) {
+    preferences.edit { putBoolean("amapConsent", agreed) }
+  }
+
   fun loadRetentionDays(): Int? = when (val days = preferences.getInt("originalRetentionDays", 7)) {
     -1 -> null
     7, 30, 90 -> days

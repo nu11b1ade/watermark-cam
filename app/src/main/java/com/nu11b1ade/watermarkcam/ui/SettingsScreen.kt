@@ -80,6 +80,8 @@ fun SettingsScreen(
   currentVersionName: String = BuildConfig.VERSION_NAME,
   updateState: UpdateCheckState = UpdateCheckState.Idle,
   onCheckUpdate: () -> Unit = {},
+  amapConsent: Boolean? = null,
+  onAMapPrivacy: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   var showTime by rememberSaveable { mutableStateOf(config.showTime) }
@@ -180,6 +182,14 @@ fun SettingsScreen(
           onPlaceChange = { place = it }, onLatitudeChange = { latitude = it }, onLongitudeChange = { longitude = it },
           forwardGeocoder = forwardGeocoder, onUseCurrentLocation = onUseCurrentLocation, showErrors = saveAttempted,
         )
+      }
+      SettingsSection("地点服务与隐私", when {
+        !BuildConfig.AMAP_ENABLED -> "当前构建未配置高德，使用系统或备用地址服务"
+        amapConsent == true -> "已启用高德地点搜索与地址查询，可随时撤回同意"
+        else -> "未启用高德，使用系统或备用地址服务，也可手动填写"
+      }) {
+        OutlinedButton(onClick = onAMapPrivacy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+          shape = RoundedCornerShape(14.dp)) { Text("高德隐私设置") }
       }
       SettingsSection("原图保留", "在历史照片中重新编辑水印；到期仅清理应用内原图") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

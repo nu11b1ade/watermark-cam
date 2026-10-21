@@ -13,13 +13,20 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
-data class PlaceCandidate(val name: String, val fullName: String, val coordinates: Coordinates)
+/** Coordinates are WGS-84; an unresolved input tip can defer its point until selection. */
+data class PlaceCandidate(val name: String, val fullName: String, val coordinates: Coordinates?, val lookupId: String? = null)
 
 fun interface ForwardGeocoder {
   suspend fun search(query: String): List<PlaceCandidate>
 
   /** Keeps network failures distinct from no matches for the UI, without changing the soft-failing search. */
   suspend fun searchResult(query: String): Result<List<PlaceCandidate>> = forwardSearchResult { search(query) }
+
+  suspend fun resolve(candidate: PlaceCandidate): PlaceCandidate? {
+    if (candidate.coordinates != null) return candidate
+    val point = searchResult(candidate.fullName).getOrNull()?.firstOrNull { it.coordinates != null }?.coordinates
+    return point?.let { candidate.copy(coordinates = it) }
+  }
 }
 
 internal suspend fun forwardSearchResult(search: suspend () -> List<PlaceCandidate>): Result<List<PlaceCandidate>> = try {
@@ -40,6 +47,18 @@ class FallbackForwardGeocoder(
     if (query.isBlank()) return Result.success(emptyList())
     val result = primary.searchResult(query)
     return if (!result.getOrNull().isNullOrEmpty()) result else fallback.searchResult(query)
+  }
+
+  override suspend fun resolve(candidate: PlaceCandidate): PlaceCandidate? {
+    if (candidate.coordinates != null) return candidate
+    val resolved = try {
+      primary.resolve(candidate)
+    } catch (cancelled: CancellationException) {
+      throw cancelled
+    } catch (_: Exception) {
+      null
+    }
+    return resolved?.takeIf { it.coordinates != null } ?: fallback.resolve(candidate)
   }
 }
 

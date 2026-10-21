@@ -23,3 +23,11 @@
 
 # Enums used by name (e.g. persisted WatermarkSize presets via valueOf/name).
 -keepclassmembers enum com.nu11b1ade.watermarkcam.** { *; }
+
+# AMap Search SDK reflection/obfuscation rules (no maps SDK is used).
+-keep class com.amap.api.services.** { *; }
+-keep class com.autonavi.** { *; }
+-keep class com.loc.** { *; }
+-dontwarn com.amap.api.**
+-dontwarn com.autonavi.**
+-dontwarn com.loc.**

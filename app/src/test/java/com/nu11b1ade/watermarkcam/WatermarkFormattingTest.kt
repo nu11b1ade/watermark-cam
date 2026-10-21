@@ -9,6 +9,7 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.WatermarkTime
 import com.nu11b1ade.watermarkcam.domain.WeatherReading
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.domain.formatWatermarkCard
 import com.nu11b1ade.watermarkcam.domain.formatWatermarkCoordinates
 import com.nu11b1ade.watermarkcam.domain.formatWatermarkTime
 import com.nu11b1ade.watermarkcam.domain.formatWatermarkWeather
@@ -83,7 +84,7 @@ class WatermarkFormattingTest {
     examples.forEach { (config, expected) -> assertEquals(expected, composeWatermark(config, observed).card) }
   }
 
-  @Test fun `blank custom text has no row and unavailable effective fields have readable placeholders`() {
+  @Test fun `blank custom text and coordinates missing from a place override have no rows`() {
     val coordinates = Coordinates(31.2304, 121.4737)
     val observed = WatermarkContent(
       ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "", coordinates, WeatherReading(coordinates, 17.0, "晴"),
@@ -91,8 +92,15 @@ class WatermarkFormattingTest {
     val card = composeWatermark(WatermarkConfig(
       showTime = false, showCustomText = true, customText = " \n ", overrides = OverrideState(place = PlaceOverride("家")),
     ), observed).card
-    assertEquals(WatermarkCard(place = "家", coordinates = "经纬度 暂无", weather = "天气 暂无"), card)
+    assertEquals(WatermarkCard(place = "家"), card)
     assertEquals("地点 暂无", composeWatermark(WatermarkConfig(), observed).card.place)
+  }
+
+  @Test fun `card formatting hides coordinate and weather rows for an override without coordinates`() {
+    val effective = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "陆家嘴")
+    val config = WatermarkConfig(showTime = false, overrides = OverrideState(place = PlaceOverride("陆家嘴")))
+
+    assertEquals(WatermarkCard(place = "陆家嘴"), formatWatermarkCard(config, effective))
   }
 
   @Test fun `Chinese weekdays include Sunday and the clock follows the effective local day`() {

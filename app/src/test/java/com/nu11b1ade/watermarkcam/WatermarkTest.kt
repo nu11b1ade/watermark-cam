@@ -7,6 +7,7 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.WeatherReading
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.domain.effectiveCoordinates
 import java.time.ZonedDateTime
 import java.time.LocalDateTime
 import java.util.Locale
@@ -36,8 +37,28 @@ class WatermarkTest {
 
     assertNull(result.content.coordinates)
     assertNull(result.content.weather)
-    assertEquals(listOf("2026-10-21 09:08:07", "地点：妈妈家", "经纬度：--", "天气--"), result.lines)
+    assertEquals(listOf("2026-10-21 09:08:07", "地点：妈妈家"), result.lines)
+    assertNull(result.card.coordinates)
+    assertNull(result.card.weather)
     assertEquals(observed, composeWatermark(WatermarkConfig(), observed).content)
+  }
+
+  @Test fun `effective coordinates use override coordinates only while place override is enabled`() {
+    val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "当前位置", Coordinates(39.9, 116.4))
+    val manual = Coordinates(31.2397, 121.4998)
+
+    assertEquals(manual, effectiveCoordinates(WatermarkConfig(overrides = OverrideState(place = PlaceOverride("陆家嘴", manual))), observed))
+    assertEquals(observed.coordinates, effectiveCoordinates(WatermarkConfig(), observed))
+    assertNull(effectiveCoordinates(WatermarkConfig(overrides = OverrideState(place = PlaceOverride("陆家嘴"))), observed))
+  }
+
+  @Test fun `automatic location keeps coordinate and weather placeholders when unavailable`() {
+    val observed = WatermarkContent(ZonedDateTime.parse("2026-10-21T09:08:07+08:00"), "位置暂不可用")
+    val result = composeWatermark(WatermarkConfig(), observed)
+
+    assertEquals(listOf("2026-10-21 09:08:07", "地点：位置暂不可用", "经纬度：--", "天气--"), result.lines)
+    assertEquals("经纬度 暂无", result.card.coordinates)
+    assertEquals("天气 暂无", result.card.weather)
   }
 
   @Test fun `weather at manual coordinates is retained and all visible fields can be disabled`() {

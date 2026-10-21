@@ -1,6 +1,7 @@
 package com.nu11b1ade.watermarkcam.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -49,8 +50,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,17 +68,26 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.OverrideInput
 import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
+import com.nu11b1ade.watermarkcam.domain.formatCoordinate
 import com.nu11b1ade.watermarkcam.domain.parseOverrides
 import com.nu11b1ade.watermarkcam.domain.toggleCoordinateSign
+import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.LocationReading
+import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +95,8 @@ fun SettingsScreen(
   config: WatermarkConfig,
   onSave: (WatermarkConfig) -> Unit,
   onBack: () -> Unit,
+  forwardGeocoder: ForwardGeocoder,
+  onUseCurrentLocation: suspend () -> LocationReading? = { null },
   modifier: Modifier = Modifier,
 ) {
   var showTime by rememberSaveable { mutableStateOf(config.showTime) }
@@ -97,6 +112,10 @@ fun SettingsScreen(
   var place by rememberSaveable { mutableStateOf(config.overrides.place?.address.orEmpty()) }
   var latitude by rememberSaveable { mutableStateOf(config.overrides.place?.coordinates?.latitude?.toString().orEmpty()) }
   var longitude by rememberSaveable { mutableStateOf(config.overrides.place?.coordinates?.longitude?.toString().orEmpty()) }
+  var coordsManuallyEdited by rememberSaveable { mutableStateOf(false) }
+  var lookup by remember { mutableStateOf(PlaceLookupUiState()) }
+  var lookupRequest by remember { mutableStateOf<PlaceLookupRequest?>(null) }
+  var lookupSequence by remember { mutableIntStateOf(0) }
   var saveAttempted by rememberSaveable { mutableStateOf(false) }
   var datePickerOpen by rememberSaveable { mutableStateOf(false) }
   var timePickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -108,6 +127,69 @@ fun SettingsScreen(
       .exceptionOrNull()?.message
   } else null
   BackHandler(onBack = onBack)
+
+  fun fillCoordinates(coordinates: Coordinates) {
+    latitude = formatCoordinate(coordinates.latitude)
+    longitude = formatCoordinate(coordinates.longitude)
+  }
+
+  fun applyCandidates(trigger: PlaceLookupTrigger, results: List<PlaceCandidate>) {
+    val decision = placeCoordinatesAfterLookup(trigger, coordsManuallyEdited, results)
+    decision.coordinatesToFill?.let(::fillCoordinates)
+    coordsManuallyEdited = decision.manuallyEdited
+  }
+
+  fun isCurrentLookup(request: PlaceLookupRequest): Boolean = placeEnabled && lookupRequest == request &&
+    (request !is PlaceLookupRequest.Search || request.query == place)
+
+  // Only user edits/actions create requests: saved values and programmatic candidate picks stay idle.
+  LaunchedEffect(place, placeEnabled, lookupRequest) {
+    val request = lookupRequest ?: return@LaunchedEffect
+    if (!isCurrentLookup(request)) return@LaunchedEffect
+    when (request) {
+      is PlaceLookupRequest.Search -> {
+        if (place.isBlank()) return@LaunchedEffect
+        if (request.trigger == PlaceLookupTrigger.DEBOUNCE) delay(800)
+        if (!isCurrentLookup(request)) return@LaunchedEffect
+        lookup = PlaceLookupUiState(message = "正在查找…")
+        val result = forwardGeocoder.searchResult(request.query)
+        currentCoroutineContext().ensureActive()
+        // A new edit can arrive before recomposition cancels this effect's previous key.
+        if (!isCurrentLookup(request)) return@LaunchedEffect
+        val candidates = result.getOrNull().orEmpty().take(5)
+        // Button protection is cleared at click time; edits made during the request still win.
+        applyCandidates(PlaceLookupTrigger.DEBOUNCE, candidates)
+        lookup = PlaceLookupUiState(candidates = candidates, message = when {
+          result.isFailure -> "查找失败，请检查网络，或手动填经纬度"
+          candidates.isEmpty() -> "没找到这个地点，可以手动填经纬度"
+          else -> null
+        })
+      }
+      is PlaceLookupRequest.CurrentLocation -> {
+        lookup = PlaceLookupUiState(message = "正在定位…", locating = true)
+        val outcome = try {
+          val reading = onUseCurrentLocation()
+          currentCoroutineContext().ensureActive()
+          if (!isCurrentLookup(request)) return@LaunchedEffect
+          if (reading?.coordinates == null) PlaceLookupUiState(message = "定位失败，请检查定位设置，或手动填写地点和经纬度") else {
+            place = reading.address.take(MAX_WATERMARK_TEXT_LENGTH)
+            fillCoordinates(reading.coordinates)
+            coordsManuallyEdited = false
+            PlaceLookupUiState()
+          }
+        } catch (cancelled: CancellationException) {
+          throw cancelled
+        } catch (_: SecurityException) {
+          PlaceLookupUiState(message = "需要定位权限才能使用当前位置")
+        } catch (_: Exception) {
+          PlaceLookupUiState(message = "定位失败，请检查定位设置，或手动填写地点和经纬度")
+        }
+        if (!isCurrentLookup(request)) return@LaunchedEffect
+        lookup = outcome
+      }
+    }
+    if (lookupRequest == request) lookupRequest = null
+  }
 
   Scaffold(
     modifier = modifier.fillMaxSize().imePadding(),
@@ -191,24 +273,61 @@ fun SettingsScreen(
         }
       }
       SettingsSection("手动地点", "定位不方便时，可以在这里填写") {
-        FieldSwitch("使用自定义地点", placeEnabled) { placeEnabled = it }
+        FieldSwitch("使用自定义地点", placeEnabled) {
+          placeEnabled = it
+          lookupRequest = null
+          lookup = PlaceLookupUiState()
+        }
         if (placeEnabled) {
           OutlinedTextField(
-            value = place, onValueChange = { place = it.take(MAX_WATERMARK_TEXT_LENGTH) },
+            value = place, onValueChange = {
+              place = it.take(MAX_WATERMARK_TEXT_LENGTH)
+              lookup = PlaceLookupUiState()
+              lookupRequest = if (place.isBlank()) null else PlaceLookupRequest.Search(place, PlaceLookupTrigger.DEBOUNCE, ++lookupSequence)
+            },
             label = { Text("地点 / 地址") }, placeholder = { Text("例如：人民公园南门") },
             isError = saveAttempted && placeError != null,
             supportingText = if (saveAttempted && placeError != null) ({ Text(placeError) }) else null,
             modifier = Modifier.fillMaxWidth(), maxLines = 3, shape = RoundedCornerShape(14.dp),
           )
+          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+              onClick = {
+                applyCandidates(PlaceLookupTrigger.BUTTON, emptyList())
+                lookup = PlaceLookupUiState()
+                lookupRequest = PlaceLookupRequest.Search(place, PlaceLookupTrigger.BUTTON, ++lookupSequence)
+              },
+              enabled = place.isNotBlank(), modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+              shape = RoundedCornerShape(14.dp),
+            ) { Text("查找经纬度") }
+            OutlinedButton(
+              onClick = { lookupRequest = PlaceLookupRequest.CurrentLocation(++lookupSequence) },
+              enabled = !lookup.locating, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+              shape = RoundedCornerShape(14.dp),
+            ) { Text("用当前位置") }
+          }
+          lookup.message?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
+          if (lookup.candidates.isNotEmpty()) {
+            PlaceCandidates(lookup.candidates) { candidate ->
+              lookupRequest = null
+              applyCandidates(PlaceLookupTrigger.PICK, listOf(candidate))
+              place = candidate.name
+              lookup = PlaceLookupUiState()
+            }
+          }
           CoordinateField(
-            label = "纬度", range = "范围 -90 ～ 90", value = latitude, onValueChange = { latitude = it },
+            label = "纬度", range = "范围 -90 ～ 90", value = latitude,
+            onValueChange = { latitude = it; coordsManuallyEdited = true },
             error = coordinatesError, imeAction = ImeAction.Next,
           )
           CoordinateField(
-            label = "经度", range = "范围 -180 ～ 180", value = longitude, onValueChange = { longitude = it },
+            label = "经度", range = "范围 -180 ～ 180", value = longitude,
+            onValueChange = { longitude = it; coordsManuallyEdited = true },
             error = coordinatesError, imeAction = ImeAction.Done,
           )
-          Text("坐标需同时填写或同时留空。留空时，照片不会保留自动定位的坐标，天气显示暂无。",
+          Text("输入地点后可自动填写坐标，也可手动修改。坐标需同时填写或留空；留空时不显示经纬度和天气。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       }
@@ -227,6 +346,33 @@ fun SettingsScreen(
     OverrideTimePicker(selectedTime, onDismiss = { timePickerOpen = false }) { hour, minute ->
       time = selectedTime.withHour(hour).withMinute(minute).withSecond(0).format(WATERMARK_TIME_FORMAT)
       timePickerOpen = false
+    }
+  }
+}
+
+private sealed interface PlaceLookupRequest {
+  data class Search(val query: String, val trigger: PlaceLookupTrigger, val sequence: Int) : PlaceLookupRequest
+  data class CurrentLocation(val sequence: Int) : PlaceLookupRequest
+}
+
+private data class PlaceLookupUiState(
+  val candidates: List<PlaceCandidate> = emptyList(),
+  val message: String? = null,
+  val locating: Boolean = false,
+)
+
+@Composable
+private fun PlaceCandidates(candidates: List<PlaceCandidate>, onPick: (PlaceCandidate) -> Unit) {
+  Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+    candidates.forEachIndexed { index, candidate ->
+      if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+      Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { onPick(candidate) }).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(candidate.name, style = MaterialTheme.typography.bodyMedium)
+        Text("纬度 ${formatCoordinate(candidate.coordinates.latitude)}, 经度 ${formatCoordinate(candidate.coordinates.longitude)}",
+          style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      }
     }
   }
 }
@@ -277,7 +423,7 @@ private fun CoordinateField(
 ) {
   OutlinedTextField(
     value = value, onValueChange = { onValueChange(it.take(24)) }, singleLine = true,
-    label = { Text("$label（可留空）") }, supportingText = { Text(error ?: "$range · ± 可切换正负号") },
+    label = { Text("$label（可自动填写）") }, supportingText = { Text(error ?: "$range · ± 可切换正负号") },
     isError = error != null, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
     leadingIcon = {
       IconButton(onClick = { onValueChange(toggleCoordinateSign(value)) },

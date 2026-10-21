@@ -49,8 +49,14 @@ val WATERMARK_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu
 
 fun cleanWatermarkText(value: String): String = value.trim().replace(Regex("\\s+"), " ").take(MAX_WATERMARK_TEXT_LENGTH)
 
+fun effectiveCoordinates(config: WatermarkConfig, observed: WatermarkContent): Coordinates? =
+  if (config.overrides.place != null) config.overrides.place.coordinates else observed.coordinates
+
+internal val WatermarkConfig.hasUnlocatedPlaceOverride: Boolean
+  get() = overrides.place != null && overrides.place.coordinates == null
+
 fun composeWatermark(config: WatermarkConfig, observed: WatermarkContent): PreparedWatermark {
-  val coordinates = if (config.overrides.place != null) config.overrides.place.coordinates else observed.coordinates
+  val coordinates = effectiveCoordinates(config, observed)
   val effective = observed.copy(
     capturedAt = config.overrides.time?.atZone(observed.capturedAt.zone) ?: observed.capturedAt,
     place = cleanWatermarkText(config.overrides.place?.address ?: observed.place),
@@ -60,10 +66,10 @@ fun composeWatermark(config: WatermarkConfig, observed: WatermarkContent): Prepa
   val lines = buildList {
     if (config.showTime) add(effective.capturedAt.format(WATERMARK_TIME_FORMAT))
     if (config.showPlace) add("地点：${effective.place}")
-    if (config.showCoordinates) add(effective.coordinates?.let {
+    if (config.showCoordinates && !config.hasUnlocatedPlaceOverride) add(effective.coordinates?.let {
       String.format(Locale.ROOT, "经纬度：%.6f, %.6f", it.latitude, it.longitude)
     } ?: "经纬度：--")
-    if (config.showWeather) add(effective.weather?.let {
+    if (config.showWeather && !config.hasUnlocatedPlaceOverride) add(effective.weather?.let {
       String.format(Locale.ROOT, "天气：%.1f°C %s", it.temperatureC, it.condition)
     } ?: "天气--")
     if (config.showCustomText && config.customText.isNotBlank()) add(cleanWatermarkText(config.customText))

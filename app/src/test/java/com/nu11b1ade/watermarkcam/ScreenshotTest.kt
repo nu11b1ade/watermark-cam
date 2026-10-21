@@ -14,7 +14,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.nu11b1ade.watermarkcam.domain.Coordinates
 import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.PlaceOverride
@@ -23,6 +27,8 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.WeatherReading
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.PlaceCandidate
 import com.nu11b1ade.watermarkcam.save.WatermarkedJpegWriter
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CameraUiState
@@ -70,7 +76,7 @@ class ScreenshotTest {
   @Test fun settingsScreen() = shoot("v3-settings.png") {
     SettingsScreen(
       config = config.copy(overrides = OverrideState(place = PlaceOverride("上海市黄浦区南京东路", coords))),
-      onSave = {}, onBack = {},
+      onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() },
     )
   }
 
@@ -79,7 +85,27 @@ class ScreenshotTest {
   @Test fun settingsScreenFull() = shoot("v3-settings-full.png") {
     SettingsScreen(
       config = config.copy(overrides = OverrideState(place = PlaceOverride("上海市黄浦区南京东路", coords))),
+      onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() },
+    )
+  }
+
+  @Config(qualifiers = "zh-rCN-w411dp-h1100dp-port-420dpi")
+  @Test fun settingsPlaceCandidates() = shoot("v4-settings-place.png", beforeCapture = {
+    compose.onNodeWithText("查找经纬度").performScrollTo().performClick()
+    compose.onNodeWithText("经度（可自动填写）").performScrollTo()
+    compose.onNodeWithText("上海市 浦东新区 陆家嘴").assertIsDisplayed()
+    compose.onNodeWithText("上海市 浦东新区 上海中心").assertIsDisplayed()
+  }) {
+    SettingsScreen(
+      config = config.copy(overrides = OverrideState(place = PlaceOverride("陆家嘴"))),
       onSave = {}, onBack = {},
+      forwardGeocoder = ForwardGeocoder {
+        listOf(
+          PlaceCandidate("上海市 浦东新区 陆家嘴", "陆家嘴, 浦东新区, 上海市, 中国", Coordinates(31.2397, 121.4998)),
+          PlaceCandidate("上海市 浦东新区 东方明珠", "东方明珠, 浦东新区, 上海市, 中国", Coordinates(31.2396, 121.4997)),
+          PlaceCandidate("上海市 浦东新区 上海中心", "上海中心, 浦东新区, 上海市, 中国", Coordinates(31.2336, 121.5055)),
+        )
+      },
     )
   }
 
@@ -104,10 +130,12 @@ class ScreenshotTest {
     assertTrue(out.length() > 0)
   }
 
-  private fun shoot(name: String, content: @Composable () -> Unit) {
+  private fun shoot(name: String, beforeCapture: () -> Unit = {}, content: @Composable () -> Unit) {
     compose.setContent { WatermarkCamTheme { content() } }
     compose.waitForIdle()
     compose.mainClock.advanceTimeBy(1_000)
+    compose.waitForIdle()
+    beforeCapture()
     compose.waitForIdle()
     val view = compose.activity.window.decorView
     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)

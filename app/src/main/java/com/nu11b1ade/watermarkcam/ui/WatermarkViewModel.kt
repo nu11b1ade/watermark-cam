@@ -12,7 +12,9 @@ import com.nu11b1ade.watermarkcam.domain.WatermarkContent
 import com.nu11b1ade.watermarkcam.domain.PreparedWatermark
 import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
+import com.nu11b1ade.watermarkcam.domain.effectiveCoordinates
 import com.nu11b1ade.watermarkcam.location.FixedLocationSource
+import com.nu11b1ade.watermarkcam.location.LocationReading
 import com.nu11b1ade.watermarkcam.location.PlatformLocationSource
 import com.nu11b1ade.watermarkcam.save.PhotoSaver
 import com.nu11b1ade.watermarkcam.weather.OpenMeteoWeatherSource
@@ -82,6 +84,8 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     refreshWeather()
   }
 
+  suspend fun currentLocation(): LocationReading? = locationSource.current().takeIf { it.coordinates != null }
+
   fun refreshEnvironment(hasLocationPermission: Boolean) {
     if (!foreground) return
     locationJob?.cancel()
@@ -114,13 +118,13 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
   private fun refreshWeather() {
     if (!foreground) return
     weatherJob?.cancel()
-    val coordinates = composeWatermark(state.value.config, state.value.observed).content.coordinates
+    val coordinates = effectiveCoordinates(state.value.config, state.value.observed)
     mutableState.update { it.copy(observed = it.observed.copy(weather = null)) }
     if (coordinates == null) return
     weatherJob = viewModelScope.launch {
       val reading = weatherSource.current(coordinates)
       mutableState.update {
-        if (composeWatermark(it.config, it.observed).content.coordinates == coordinates) {
+        if (effectiveCoordinates(it.config, it.observed) == coordinates) {
           it.copy(observed = it.observed.copy(weather = reading))
         } else it
       }

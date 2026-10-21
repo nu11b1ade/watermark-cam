@@ -46,6 +46,9 @@ import androidx.lifecycle.withResumed
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nu11b1ade.watermarkcam.location.AndroidForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.FallbackForwardGeocoder
+import com.nu11b1ade.watermarkcam.location.NominatimForwardGeocoder
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
@@ -79,6 +82,9 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
   val snackbar = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val darkTheme = isSystemInDarkTheme()
+  val forwardGeocoder = remember(context) {
+    FallbackForwardGeocoder(AndroidForwardGeocoder(context.applicationContext), NominatimForwardGeocoder())
+  }
 
   SideEffect {
     val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -137,6 +143,11 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
         config = state.config,
         onSave = { model.updateConfig(it); settingsOpen = false },
         onBack = { settingsOpen = false },
+        forwardGeocoder = forwardGeocoder,
+        onUseCurrentLocation = {
+          if (!context.hasLocationPermission()) throw SecurityException("Location permission required")
+          model.currentLocation()
+        },
       )
     } else {
       CameraScreen(

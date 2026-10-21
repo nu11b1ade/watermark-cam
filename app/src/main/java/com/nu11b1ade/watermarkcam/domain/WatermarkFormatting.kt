@@ -39,8 +39,8 @@ fun formatWatermarkWeather(weather: WeatherReading?): String {
 fun formatWatermarkCard(config: WatermarkConfig, effective: WatermarkContent): WatermarkCard = WatermarkCard(
   time = if (config.showTime) formatWatermarkTime(effective.capturedAt) else null,
   place = if (config.showPlace) cleanWatermarkText(effective.place).ifBlank { "地点 暂无" } else null,
-  coordinates = if (config.showCoordinates) formatWatermarkCoordinates(effective.coordinates) else null,
-  weather = if (config.showWeather) formatWatermarkWeather(effective.weather) else null,
+  coordinates = if (config.showCoordinates && !config.hasUnlocatedPlaceOverride) formatWatermarkCoordinates(effective.coordinates) else null,
+  weather = if (config.showWeather && !config.hasUnlocatedPlaceOverride) formatWatermarkWeather(effective.weather) else null,
   tag = if (config.showCustomText) cleanWatermarkText(config.customText).takeIf { it.isNotBlank() } else null,
   watermarkSize = config.watermarkSize,
 )

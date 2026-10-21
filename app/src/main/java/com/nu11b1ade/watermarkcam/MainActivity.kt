@@ -52,10 +52,15 @@ import com.nu11b1ade.watermarkcam.location.NominatimForwardGeocoder
 import com.nu11b1ade.watermarkcam.ui.CameraScreen
 import com.nu11b1ade.watermarkcam.ui.CaptureRequest
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
+import com.nu11b1ade.watermarkcam.ui.InstallPermissionDialog
 import com.nu11b1ade.watermarkcam.ui.PhotoEditScreen
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
+import com.nu11b1ade.watermarkcam.ui.UpdateDialog
 import com.nu11b1ade.watermarkcam.ui.WatermarkViewModel
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
+import com.nu11b1ade.watermarkcam.update.ApkInstaller
+import com.nu11b1ade.watermarkcam.update.UpdateCheckState
+import com.nu11b1ade.watermarkcam.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -72,10 +77,24 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()) {
+private fun WatermarkApp(
+  window: Window,
+  model: WatermarkViewModel = viewModel(),
+  updateModel: UpdateViewModel = viewModel(),
+) {
   val context = LocalContext.current
   val owner = LocalLifecycleOwner.current
   val state by model.state.collectAsStateWithLifecycle()
+  val updateState by updateModel.state.collectAsStateWithLifecycle()
+  val installer = remember(context) { ApkInstaller(context) }
+  val installPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+    updateModel.retryInstall()
+  }
+  LaunchedEffect(updateState.installRequest) {
+    updateState.installRequest?.let { file ->
+      owner.lifecycle.withResumed { updateModel.onInstallResult(installer.install(file)) }
+    }
+  }
   // "camera" | "settings" | "history" | "edit:<id>"
   var screen by rememberSaveable { mutableStateOf("camera") }
   val settingsOpen = screen != "camera"
@@ -158,6 +177,11 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
         },
         retentionDays = state.retentionDays,
         onRetentionChange = model::updateRetention,
+        updateState = updateState.check,
+        onCheckUpdate = {
+          if (updateState.check is UpdateCheckState.Available) updateModel.openUpdate()
+          else updateModel.check(manual = true)
+        },
       )
     } else if (screen == "history" || (editId != null && editRecord == null)) {
       LaunchedEffect(Unit) { if (editId != null) screen = "history" }
@@ -227,6 +251,23 @@ private fun WatermarkApp(window: Window, model: WatermarkViewModel = viewModel()
       Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars)
         .padding(bottom = if (settingsOpen) 96.dp else 164.dp),
     )
+  }
+  if (updateState.showInstallPermission) {
+    InstallPermissionDialog(
+      onSettings = {
+        try {
+          installPermission.launch(installer.permissionIntent())
+        } catch (_: ActivityNotFoundException) {
+          updateModel.permissionSettingsFailed()
+        } catch (_: SecurityException) {
+          updateModel.permissionSettingsFailed()
+        }
+      },
+      onDismiss = updateModel::dismissInstallPermission,
+    )
+  } else updateState.dialog?.let {
+    UpdateDialog(it, onUpdate = updateModel::downloadUpdate, onDismiss = updateModel::dismissDialog,
+      onCancelDownload = updateModel::cancelDownload)
   }
 }
 

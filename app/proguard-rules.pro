@@ -18,6 +18,8 @@
 -keep class androidx.exifinterface.media.ExifInterface { *; }
 
 # JSON: only the platform org.json is used (field names are string literals), nothing to keep.
+# Updates: FileProvider is manifest-referenced and kept by AAPT's generated rules. UpdateManifest
+# uses explicit org.json access rather than reflection, so it needs no additional keep rules.
 
 # Enums used by name (e.g. persisted WatermarkSize presets via valueOf/name).
 -keepclassmembers enum com.nu11b1ade.watermarkcam.** { *; }

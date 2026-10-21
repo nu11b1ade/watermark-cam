@@ -38,7 +38,12 @@ import com.nu11b1ade.watermarkcam.ui.CameraUiState
 import com.nu11b1ade.watermarkcam.ui.HistoryScreen
 import com.nu11b1ade.watermarkcam.ui.PhotoEditScreen
 import com.nu11b1ade.watermarkcam.ui.SettingsScreen
+import com.nu11b1ade.watermarkcam.ui.UpdateDialog
 import com.nu11b1ade.watermarkcam.ui.theme.WatermarkCamTheme
+import com.nu11b1ade.watermarkcam.update.ApkUrls
+import com.nu11b1ade.watermarkcam.update.UpdateCheckState
+import com.nu11b1ade.watermarkcam.update.UpdateDialogState
+import com.nu11b1ade.watermarkcam.update.UpdateManifest
 import java.io.File
 import java.time.ZonedDateTime
 import org.junit.Assert.assertTrue
@@ -49,6 +54,7 @@ import org.junit.rules.TemporaryFolder
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
 
 /**
  * JVM "screenshots" for humans to eyeball (no emulator needed). Writes to <repo>/.scratch/screenshots/.
@@ -69,6 +75,10 @@ class ScreenshotTest {
     weather = WeatherReading(coords, 22.0, "多云"),
   )
   private val config = WatermarkConfig()
+  private val update = UpdateManifest(
+    2, "0.2.0", "本次更新\n\n• 新增应用内更新，支持自动检查与手动检查。\n• 下载失败时自动切换备用来源。\n• 优化拍照体验，修复问题，提升稳定性。",
+    ApkUrls(github = "https://github.com/nu11b1ade/watermark-cam/releases/download/v0.2.0/watermark-cam-0.2.0.apk"), "a".repeat(64),
+  )
 
   @Test fun mainCameraScreen() = shoot("v3-main.png") {
     CameraScreen(
@@ -116,6 +126,21 @@ class ScreenshotTest {
     )
   }
 
+  @Test fun settingsUpdateSection() = shoot("v5-update.png", beforeCapture = {
+    compose.onNodeWithText("发现新版本 v0.2.0").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithText("当前版本 v${BuildConfig.VERSION_NAME}").assertIsDisplayed()
+  }) {
+    SettingsScreen(config, onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() },
+      updateState = UpdateCheckState.Available(update))
+  }
+
+  @Test fun updateDialog() = shoot("v5-update-dialog.png", captureDialog = true, beforeCapture = {
+    compose.onNodeWithText("发现新版本 v0.2.0").assertIsDisplayed()
+    compose.onNodeWithText("以后再说").assertIsDisplayed()
+  }) {
+    UpdateDialog(UpdateDialogState(update, recommendImmediate = true), onUpdate = {}, onDismiss = {}, onCancelDownload = {})
+  }
+
   @Test fun savedPhotoSample() = savedPhotoSample("v3-watermark-sample.jpg", config)
 
   @Test fun savedPhotoSampleLarge() = savedPhotoSample("v3-watermark-sample-large.jpg", config.copy(watermarkSize = WatermarkSize.XLARGE))
@@ -143,8 +168,14 @@ class ScreenshotTest {
       latitude = "31.2397", longitude = "121.4998", weatherText = "多云 23°C",
       config = config.copy(showCustomText = true, customText = "今日打卡 · 平安喜乐", watermarkSize = WatermarkSize.LARGE))
     shoot("v4-edit.png", beforeCapture = {
-      compose.waitUntil(10_000) {
-        compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("照片预览")).fetchSemanticsNodes().isNotEmpty()
+      // Decoding runs on Dispatchers.IO; when the whole class runs, the result posted back to the
+      // paused Robolectric main looper was not always drained by waitUntil. Pump it explicitly.
+      val deadline = System.currentTimeMillis() + 15_000
+      while (compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("照片预览")).fetchSemanticsNodes().isEmpty()) {
+        check(System.currentTimeMillis() < deadline) { "照片预览 never appeared" }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        compose.mainClock.advanceTimeByFrame()
+        Thread.sleep(50)
       }
     }) {
       PhotoEditScreen(record, original, onSave = {}, onBack = {}, forwardGeocoder = ForwardGeocoder { emptyList() }, initial = edited)
@@ -178,14 +209,16 @@ class ScreenshotTest {
     assertTrue(out.length() > 0)
   }
 
-  private fun shoot(name: String, beforeCapture: () -> Unit = {}, content: @Composable () -> Unit) {
+  private fun shoot(name: String, beforeCapture: () -> Unit = {}, captureDialog: Boolean = false, content: @Composable () -> Unit) {
     compose.setContent { WatermarkCamTheme { content() } }
     compose.waitForIdle()
     compose.mainClock.advanceTimeBy(1_000)
     compose.waitForIdle()
     beforeCapture()
     compose.waitForIdle()
-    val view = compose.activity.window.decorView
+    // Compose dialogs have their own window; the Activity decor alone would produce a blank shot.
+    val view = if (captureDialog) checkNotNull(ShadowDialog.getLatestDialog()).window!!.decorView
+      else compose.activity.window.decorView
     val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
     view.draw(Canvas(bitmap))
     outFile(name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

@@ -64,6 +64,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nu11b1ade.watermarkcam.BuildConfig
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
 import com.nu11b1ade.watermarkcam.domain.OverrideInput
 import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
@@ -73,6 +74,7 @@ import com.nu11b1ade.watermarkcam.domain.parseOverrides
 import com.nu11b1ade.watermarkcam.domain.toggleCoordinateSign
 import com.nu11b1ade.watermarkcam.location.ForwardGeocoder
 import com.nu11b1ade.watermarkcam.location.LocationReading
+import com.nu11b1ade.watermarkcam.update.UpdateCheckState
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -88,6 +90,9 @@ fun SettingsScreen(
   onUseCurrentLocation: suspend () -> LocationReading? = { null },
   retentionDays: Int? = 7,
   onRetentionChange: (Int?) -> Unit = {},
+  currentVersionName: String = BuildConfig.VERSION_NAME,
+  updateState: UpdateCheckState = UpdateCheckState.Idle,
+  onCheckUpdate: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   var showTime by rememberSaveable { mutableStateOf(config.showTime) }
@@ -199,6 +204,7 @@ fun SettingsScreen(
       }
       Text("拍好后，打开微信，从相册选择照片发送。", Modifier.padding(horizontal = 8.dp),
         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      UpdateSection(currentVersionName, updateState, onCheckUpdate)
     }
   }
 
@@ -212,6 +218,22 @@ fun SettingsScreen(
     OverrideTimePicker(selectedTime, onDismiss = { timePickerOpen = false }) { hour, minute ->
       time = selectedTime.withHour(hour).withMinute(minute).withSecond(0).format(WATERMARK_TIME_FORMAT)
       timePickerOpen = false
+    }
+  }
+}
+
+@Composable
+private fun UpdateSection(versionName: String, state: UpdateCheckState, onCheck: () -> Unit) {
+  SettingsSection("检查更新", "当前版本 v$versionName") {
+    OutlinedButton(onClick = onCheck, enabled = state != UpdateCheckState.Checking,
+      modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(16.dp)) {
+      Text(when (state) {
+        UpdateCheckState.Idle -> "检查更新"
+        UpdateCheckState.Checking -> "检查中…"
+        UpdateCheckState.UpToDate -> "已是最新"
+        is UpdateCheckState.Available -> "发现新版本 v${state.manifest.versionName}"
+        UpdateCheckState.Failed -> "检查失败，请稍后再试"
+      })
     }
   }
 }

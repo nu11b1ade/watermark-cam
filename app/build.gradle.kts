@@ -36,8 +36,8 @@ android {
     applicationId = "com.nu11b1ade.watermarkcam"
     minSdk = 26
     targetSdk = 37
-    versionCode = 1
-    versionName = "0.1.0"
+    versionCode = 2
+    versionName = "0.2.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
   signingConfigs {
@@ -58,7 +58,10 @@ android {
       if (releaseSigning != null) signingConfig = signingConfigs.getByName("release")
     }
   }
-  buildFeatures { compose = true }
+  buildFeatures {
+    compose = true
+    buildConfig = true
+  }
   testOptions { unitTests.isIncludeAndroidResources = true }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_21

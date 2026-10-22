@@ -4,14 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.content.edit
 import com.nu11b1ade.watermarkcam.domain.Coordinates
-import com.nu11b1ade.watermarkcam.domain.OverrideInput
 import com.nu11b1ade.watermarkcam.domain.OverrideState
 import com.nu11b1ade.watermarkcam.domain.MAX_WATERMARK_TEXT_LENGTH
-import com.nu11b1ade.watermarkcam.domain.WATERMARK_TIME_FORMAT
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
 import com.nu11b1ade.watermarkcam.domain.cleanWatermarkText
-import com.nu11b1ade.watermarkcam.domain.parseOverrides
 import com.nu11b1ade.watermarkcam.location.LocationReading
 
 class SettingsStore(context: Context) {
@@ -65,15 +62,16 @@ class SettingsStore(context: Context) {
   }
 
   fun load(): WatermarkConfig {
+    // Overrides are session-only; discard values persisted by older versions.
+    preferences.edit(commit = true) {
+      remove("overrideTime")
+      remove("time")
+      remove("overridePlace")
+      remove("place")
+      remove("latitude")
+      remove("longitude")
+    }
     val defaults = WatermarkConfig()
-    val overrides = parseOverrides(OverrideInput(
-      timeEnabled = preferences.getBoolean("overrideTime", false),
-      time = preferences.getString("time", "").orEmpty(),
-      placeEnabled = preferences.getBoolean("overridePlace", false),
-      place = preferences.getString("place", "").orEmpty(),
-      latitude = preferences.getString("latitude", "").orEmpty(),
-      longitude = preferences.getString("longitude", "").orEmpty(),
-    )).getOrDefault(OverrideState())
     return WatermarkConfig(
       showTime = preferences.getBoolean("showTime", defaults.showTime),
       showPlace = preferences.getBoolean("showPlace", defaults.showPlace),
@@ -81,7 +79,7 @@ class SettingsStore(context: Context) {
       showWeather = preferences.getBoolean("showWeather", defaults.showWeather),
       showCustomText = preferences.getBoolean("showCustomText", defaults.showCustomText),
       customText = preferences.getString("customText", defaults.customText).orEmpty().take(MAX_WATERMARK_TEXT_LENGTH),
-      overrides = overrides,
+      overrides = OverrideState(),
       watermarkSize = WatermarkSize.entries.find { it.name == preferences.getString("watermarkSize", null) }
         ?: defaults.watermarkSize,
     )
@@ -96,12 +94,6 @@ class SettingsStore(context: Context) {
       putBoolean("showCustomText", config.showCustomText)
       putString("customText", config.customText)
       putString("watermarkSize", config.watermarkSize.name)
-      putBoolean("overrideTime", config.overrides.time != null)
-      putString("time", config.overrides.time?.format(WATERMARK_TIME_FORMAT))
-      putBoolean("overridePlace", config.overrides.place != null)
-      putString("place", config.overrides.place?.address)
-      putString("latitude", config.overrides.place?.coordinates?.latitude?.toString())
-      putString("longitude", config.overrides.place?.coordinates?.longitude?.toString())
     }
   }
 }

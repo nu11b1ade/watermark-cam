@@ -1,10 +1,15 @@
 package com.nu11b1ade.watermarkcam
 
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.edit
 import com.nu11b1ade.watermarkcam.data.SettingsStore
+import com.nu11b1ade.watermarkcam.domain.Coordinates
+import com.nu11b1ade.watermarkcam.domain.OverrideState
+import com.nu11b1ade.watermarkcam.domain.PlaceOverride
 import com.nu11b1ade.watermarkcam.domain.WatermarkConfig
 import com.nu11b1ade.watermarkcam.domain.WatermarkSize
+import com.nu11b1ade.watermarkcam.location.LocationReading
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -32,6 +37,19 @@ class SettingsStoreTest {
     assertEquals(true, SettingsStore(context).loadAMapConsent())
     SettingsStore(context).saveAMapConsent(false)
     assertEquals(false, SettingsStore(context).loadAMapConsent())
+  }
+
+  @Test fun `last automatic location survives a new store independently of location override`() {
+    val store = SettingsStore(context)
+    val automatic = Coordinates(31.2304, 121.4737)
+    val manual = WatermarkConfig(overrides = OverrideState(place = PlaceOverride("手动地点", Coordinates(30.0, 120.0))))
+
+    assertNull(store.loadLastLocation())
+    store.saveLastLocation("上海市黄浦区", automatic)
+    store.save(manual)
+
+    assertEquals(LocationReading("上海市黄浦区", automatic), SettingsStore(context).loadLastLocation())
+    assertEquals(manual, SettingsStore(context).load())
   }
 
   @Test fun `new installation defaults to medium without custom text`() {
@@ -78,5 +96,16 @@ class SettingsStoreTest {
   @Test fun `invalid persisted retention falls back to 7 days`() {
     preferences.edit { putInt("originalRetentionDays", 999) }
     assertEquals(7, SettingsStore(context).loadRetentionDays())
+  }
+
+  @Test fun `last saved photo uri persists and can be cleared`() {
+    val store = SettingsStore(context)
+    val uri = Uri.parse("content://media/external/images/media/42")
+    assertNull(store.loadLastSavedUri())
+    store.saveLastSavedUri(uri)
+    store.save(WatermarkConfig(customText = "缩略图"))
+    assertEquals(uri, SettingsStore(context).loadLastSavedUri())
+    store.saveLastSavedUri(null)
+    assertNull(SettingsStore(context).loadLastSavedUri())
   }
 }

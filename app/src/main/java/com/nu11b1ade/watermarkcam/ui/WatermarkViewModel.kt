@@ -13,7 +13,7 @@ import com.nu11b1ade.watermarkcam.domain.PreparedWatermark
 import com.nu11b1ade.watermarkcam.domain.PhotoFrame
 import com.nu11b1ade.watermarkcam.domain.composeWatermark
 import com.nu11b1ade.watermarkcam.domain.effectiveCoordinates
-import com.nu11b1ade.watermarkcam.location.FixedLocationSource
+import com.nu11b1ade.watermarkcam.location.LocationSource
 import com.nu11b1ade.watermarkcam.location.LocationReading
 import com.nu11b1ade.watermarkcam.location.PlatformLocationSource
 import com.nu11b1ade.watermarkcam.save.PhotoSaver
@@ -50,16 +50,21 @@ data class CameraUiState(
   val historyLoading: Boolean = false,
 )
 
-class WatermarkViewModel(application: Application) : AndroidViewModel(application) {
-  private val settings = SettingsStore(application)
-  private val locationSource = PlatformLocationSource(application)
+class WatermarkViewModel @JvmOverloads constructor(
+  application: Application,
+  private val settings: SettingsStore = SettingsStore(application),
+  private val locationSource: LocationSource = PlatformLocationSource(application),
+) : AndroidViewModel(application) {
   private val weatherSource = OpenMeteoWeatherSource()
   private val originals = OriginalsStore(File(application.filesDir, "originals"))
   private val photoSaver = PhotoSaver(application, originals)
   private val mutableState = MutableStateFlow(CameraUiState(
     config = settings.load(),
     retentionDays = settings.loadRetentionDays(),
-    observed = WatermarkContent(ZonedDateTime.now(), "未开启定位（可手动设置）"),
+    lastSaved = restoreLastSaved(),
+    observed = settings.loadLastLocation().let { cached ->
+      WatermarkContent(ZonedDateTime.now(), cached?.address ?: PLACE_NO_PERMISSION, cached?.coordinates)
+    },
   ))
   val state = mutableState.asStateFlow()
   private var locationJob: Job? = null
@@ -103,6 +108,7 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     viewModelScope.launch {
       try {
         val uri = photoSaver.saveFromOriginal(originals.originalFile(record.id), watermark)
+        rememberLastSaved(uri)
         mutableState.update { it.copy(lastSaved = uri, notice = Notice("已保存为新照片")) }
         onDone()
       } catch (cancelled: CancellationException) {
@@ -152,26 +158,73 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     if (!hasLocationPermission) {
       mutableState.update { it.copy(
         locating = false,
-        observed = it.observed.copy(place = "未开启定位（可手动设置）", coordinates = null, weather = null),
+        observed = it.observed.copy(place = PLACE_NO_PERMISSION, coordinates = null, weather = null),
       ) }
-      refreshWeather()
       return
+    }
+    val cached = settings.loadLastLocation()
+    mutableState.update { state ->
+      val coordinates = state.observed.coordinates ?: cached?.coordinates
+      val place = when {
+        state.observed.coordinates != null && !isPlaceholderPlace(state.observed.place) -> state.observed.place
+        cached != null -> cached.address
+        else -> state.observed.place
+      }
+      state.copy(
+        locating = coordinates == null,
+        observed = state.observed.copy(place = place, coordinates = coordinates),
+      )
     }
     refreshWeather()
     locationJob = viewModelScope.launch {
-      mutableState.update { it.copy(locating = true) }
-      val location = try {
-        locationSource.current()
+      var reverseJob: Job? = null
+      try {
+        locationSource.fixes().collect { coordinates ->
+          mutableState.update {
+            it.copy(locating = false, observed = it.observed.copy(coordinates = coordinates))
+          }
+          refreshWeather()
+          reverseJob?.cancel()
+          reverseJob = launch {
+            val resolved = try {
+              locationSource.reverse(coordinates)?.takeIf { it.isNotBlank() }
+            } catch (cancelled: CancellationException) {
+              throw cancelled
+            } catch (_: Exception) {
+              null
+            }
+            mutableState.update { state ->
+              if (state.observed.coordinates != coordinates) return@update state
+              val place = resolved
+                ?: state.observed.place.takeUnless(::isPlaceholderPlace)
+                ?: PLACE_NO_ADDRESS
+              if (resolved != null) settings.saveLastLocation(resolved, coordinates)
+              state.copy(observed = state.observed.copy(place = place))
+            }
+          }
+        }
+        reverseJob?.join()
+        mutableState.update { state ->
+          if (state.observed.coordinates != null) state.copy(locating = false)
+          else state.copy(
+            locating = false,
+            observed = state.observed.copy(
+              place = state.observed.place.takeUnless(::isPlaceholderPlace) ?: PLACE_UNAVAILABLE,
+            ),
+          )
+        }
       } catch (cancelled: CancellationException) {
         throw cancelled
       } catch (_: Exception) {
-        FixedLocationSource().current()
+        mutableState.update { state ->
+          state.copy(
+            locating = false,
+            observed = if (state.observed.coordinates == null) {
+              state.observed.copy(place = PLACE_UNAVAILABLE)
+            } else state.observed,
+          )
+        }
       }
-      mutableState.update { it.copy(
-        locating = false,
-        observed = it.observed.copy(place = location.address, coordinates = location.coordinates),
-      ) }
-      refreshWeather()
     }
   }
 
@@ -203,6 +256,7 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
     viewModelScope.launch {
       try {
         val uri = photoSaver.captureAndSave(request.camera, request.watermark)
+        rememberLastSaved(uri)
         mutableState.update { it.copy(lastSaved = uri, notice = Notice("已保存到相册")) }
       } catch (cancelled: CancellationException) {
         throw cancelled
@@ -226,5 +280,32 @@ class WatermarkViewModel(application: Application) : AndroidViewModel(applicatio
 
   fun dismissNotice(id: Long) {
     mutableState.update { if (it.notice?.id == id) it.copy(notice = null) else it }
+  }
+
+  private fun rememberLastSaved(uri: Uri) {
+    settings.saveLastSavedUri(uri)
+  }
+
+  private fun restoreLastSaved(): Uri? {
+    val uri = settings.loadLastSavedUri() ?: return null
+    return if (uriReadable(uri)) uri else {
+      settings.saveLastSavedUri(null)
+      null
+    }
+  }
+
+  private fun uriReadable(uri: Uri): Boolean = try {
+    getApplication<Application>().contentResolver.openInputStream(uri)?.use { true } == true
+  } catch (_: Exception) {
+    false
+  }
+
+  private companion object {
+    const val PLACE_NO_PERMISSION = "未开启定位（可手动设置）"
+    const val PLACE_UNAVAILABLE = "位置暂不可用（可手动设置）"
+    const val PLACE_NO_ADDRESS = "地址暂不可用（可手动设置）"
+
+    fun isPlaceholderPlace(place: String): Boolean =
+      place == PLACE_NO_PERMISSION || place == PLACE_UNAVAILABLE || place == PLACE_NO_ADDRESS
   }
 }

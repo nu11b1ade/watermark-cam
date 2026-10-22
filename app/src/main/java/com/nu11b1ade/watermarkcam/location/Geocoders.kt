@@ -22,6 +22,7 @@ class Geocoders(context: Context) {
 
   val forward: ForwardGeocoder = FallbackForwardGeocoder(amap,
     FallbackForwardGeocoder(AndroidForwardGeocoder(app), NominatimForwardGeocoder()))
-  val reverse: ReverseGeocoder = FallbackReverseGeocoder(amap,
-    FallbackReverseGeocoder(AndroidReverseGeocoder(app), NominatimReverseGeocoder()))
+  /** Camera-open lookups fail soft after AMap / Android; Nominatim is never on this path. */
+  val cameraReverse: ReverseGeocoder = FallbackReverseGeocoder(amap, AndroidReverseGeocoder(app))
+  val reverse: ReverseGeocoder = FallbackReverseGeocoder(cameraReverse, NominatimReverseGeocoder())
 }
